@@ -1,18 +1,28 @@
+mod lexer;
 use std::{
+    fmt::Display,
     fs::read,
     io::{stdin, stdout, Write},
     path::PathBuf,
     process::exit,
 };
 
+fn error(line: usize, message: impl Display) {
+    eprintln!("Error: line {line}: {message}");
+}
+
 use clap::Parser;
+
+use crate::lexer::Lexer;
 #[derive(Clone, Debug, Parser)]
 struct CliArgs {
     source_path: Option<PathBuf>,
 }
-fn run(source: &str) {
+fn run(source: &str) -> bool {
     print!("{source}");
+    false
 }
+
 fn prompt() {
     let mut input_buf = String::with_capacity(1024);
     loop {
@@ -44,4 +54,5 @@ fn main() {
         println!("Running prompt ...");
         prompt();
     }
+    // Lexer::new("Source".to_string()).lex();
 }
