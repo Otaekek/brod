@@ -1,7 +1,7 @@
-use std::{collections::HashMap, fmt::Display, str::Chars};
-
-#[derive(Copy, Clone, Debug)]
-pub enum TokenType<'a> {
+use once_cell::sync::Lazy;
+use std::{collections::HashMap, fmt::Display};
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum SimpleToken {
     LeftParen,
     RightParen,
     LeftBrace,
@@ -13,24 +13,26 @@ pub enum TokenType<'a> {
     SemiColon,
     Slash,
     Star,
+    Equal,
     Bang,
     BangEqual,
     Greater,
     GreaterEqual,
     Less,
     LessEqual,
-    Idenfitier(&'a str),
-    String(&'a str),
-    Number(f64),
+    KeyWord(KeyWordType),
     And,
+    Or,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum KeyWordType {
     Class,
     Else,
     False,
     Fun,
     For,
-    If,
     Nil,
-    Or,
     Print,
     Return,
     Super,
@@ -38,22 +40,49 @@ pub enum TokenType<'a> {
     True,
     Var,
     While,
-    Eof,
+    If,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct Token<'a> {
-    pub token_type: TokenType<'a>,
+static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
+    let mut m = HashMap::new();
+    m.insert("class", KeyWordType::Class);
+    m.insert("else", KeyWordType::Else);
+    m.insert("false", KeyWordType::False);
+    m.insert("fun", KeyWordType::Fun);
+    m.insert("for", KeyWordType::For);
+    m.insert("nil", KeyWordType::Nil);
+    m.insert("print", KeyWordType::Print);
+    m.insert("return", KeyWordType::Return);
+    m.insert("super", KeyWordType::Super);
+    m.insert("this", KeyWordType::This);
+    m.insert("true", KeyWordType::True);
+    m.insert("var", KeyWordType::Var);
+    m.insert("while", KeyWordType::While);
+    m.insert("if", KeyWordType::If);
+    m
+});
+#[derive(Clone, Debug, PartialEq)]
+pub enum Token {
+    Single(SimpleToken),
+    StringLitteral(String),
+    Identifier(String),
+    Number(f64),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LocatedToken {
+    pub token: Token,
     pub line: usize,
+    pub row: usize,
 }
 
-impl<'a> Token<'a> {
-    pub fn new(token_type: TokenType<'a>, line: usize) -> Self {
-        Self { token_type, line }
+impl LocatedToken {
+    pub fn new(token: Token, line: usize, row: usize) -> Self {
+        Self { token, line, row }
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 enum State {
     Default,
@@ -69,36 +98,33 @@ enum State {
 
 #[derive(Copy, Clone, Debug)]
 #[repr(u8)]
-enum Action<'a> {
+enum Action {
     None,
-    Push(TokenType<'a>),
+    Push(SimpleToken),
     PushString,
     PushNumber,
     PushEscapedInString,
     PushIdentifierOrKeyWord,
     Error,
-    Last,
 }
 
-struct Fsm<'a> {
-    fsm: Vec<Vec<(State, Action<'a>)>>,
-    state: State,
-    token_start: usize,
+struct Fsm {
+    fsm: Vec<Vec<(State, Action)>>,
 }
 
-impl<'a> Fsm<'a> {
-    fn transision(&mut self, c: char, input: State, output: (State, Action<'a>)) {
+impl Fsm {
+    fn transision(&mut self, c: char, input: State, output: (State, Action)) {
         self.fsm[c as usize][input as usize] = output;
     }
 
-    fn transisions(&mut self, characters: &str, input: State, output: (State, Action<'a>)) {
+    fn transisions(&mut self, characters: &str, input: State, output: (State, Action)) {
         for c in characters.chars() {
             self.fsm[c as usize][input as usize] = output;
         }
     }
 
     // All characters that are not included in the input character list
-    fn transisions_anti(&mut self, characters: &str, input: State, output: (State, Action<'a>)) {
+    fn transisions_anti(&mut self, characters: &str, input: State, output: (State, Action)) {
         for c in 0..255u8 {
             let c = c as char;
             if !characters.contains(c) {
@@ -112,21 +138,18 @@ impl<'a> Fsm<'a> {
     }
     pub fn init() -> Self {
         let mut fsm = Vec::with_capacity(u8::MAX as usize);
+        fsm.resize(u8::MAX as usize, vec![]);
 
         for i in 0..u8::MAX {
             let mut n = vec![];
             n.resize(State::Last as usize, (State::Default, Action::Error));
             fsm[i as usize] = n;
         }
-        Self {
-            fsm,
-            state: State::Default,
-            token_start: 0,
-        }
+        Self { fsm }
     }
     pub fn build(&mut self) {
+        use SimpleToken::*;
         use State::*;
-        use TokenType::*;
         let alphabet_l = "abcdefghijklmnopqrstuvwxyz";
         let alphabet_u = alphabet_l.to_uppercase();
         let both_alpabet = alphabet_l.to_string() + &alphabet_u;
@@ -135,12 +158,12 @@ impl<'a> Fsm<'a> {
         let default = Default;
 
         // Character to skip
-        self.transisions(" \t", Default, (BuildBang, Action::None));
+        self.transisions(" \t", Default, (Default, Action::None));
         // Single Tokens
-        let single_token_chars = "(){},.-+*;/&|";
+        let single_token_chars = "(){},.-+*;/&|=";
         let single_token_token = [
             LeftParen, RightParen, LeftBrace, RightBrace, Comma, Dot, Minus, Plus, Star, SemiColon,
-            Slash, And, Or,
+            Slash, And, Or, Equal,
         ];
         for (character, token) in single_token_chars.chars().zip(single_token_token) {
             self.transision(character, default, (Default, Action::Push(token)));
@@ -161,13 +184,13 @@ impl<'a> Fsm<'a> {
         // String litterals like "Banana"
         self.transision('\"', Default, (BuildString, Action::None));
         self.transision('\\', BuildString, (BuildStringEscape, Action::None));
-        self.transisions_anti("\"", BuildString, (BuildString, Action::PushString));
+        self.transisions_anti("\"", BuildString, (BuildString, Action::None));
         self.transisions(
             "\\\"",
             BuildStringEscape,
-            (BuildString, Action::PushEscapedInString),
+            (Default, Action::PushEscapedInString),
         );
-        self.transision('\"', BuildString, (BuildString, Action::None));
+        self.transision('\"', BuildString, (Default, Action::PushString));
 
         // Identifier and keywords
         self.transisions(&both_alpabet, Default, (BuildIdentOrKeyword, Action::None));
@@ -185,34 +208,33 @@ impl<'a> Fsm<'a> {
         // Numbers
         self.transisions(digits, Default, (BuildNumber, Action::None));
         self.transisions(digits, BuildNumber, (BuildNumber, Action::None));
-        self.transision('.', BuildNumber, (BuildNumber, Action::None));
+        // self.transision('.', BuildNumber, (BuildNumber, Action::None)); TODO
         self.transisions(
-            "&|,-+*;/<>! \n",
+            ")}&|,-+*;/<>! \n",
             BuildNumber,
-            (BuildNumber, Action::PushNumber),
+            (Default, Action::PushNumber),
         );
     }
 }
-pub struct Lexer<'a> {
-    fsm: Fsm<'a>,
-    literals: Vec<String>,
+struct Lexer {
+    fsm: Fsm,
     source: String,
     source_name: String,
     current: usize,
     start: usize,
     line: usize,
+    row: usize,
     state: State,
-    pub tokens: Vec<Token<'a>>,
+    pub tokens: Vec<LocatedToken>,
 }
 
-impl<'a> Lexer<'a> {
+impl Lexer {
     pub fn new(source: String, source_name: String) -> Self {
         let source = source;
         let mut fsm = Fsm::init();
         fsm.build();
         Self {
             fsm: fsm,
-            literals: Vec::with_capacity(4092),
             source,
             source_name,
             tokens: vec![],
@@ -220,105 +242,144 @@ impl<'a> Lexer<'a> {
             start: 0,
             current: 0,
             state: State::Default,
+            row: 0,
         }
     }
+
     fn error(&self, message: impl Display) {
         eprintln!("Error: line {}: {message}", self.line);
     }
+
     fn is_at_end(&self) -> bool {
         self.source.len() == self.current
     }
-    fn advance(&mut self) -> char {
+
+    fn advance(&mut self) {
         self.current += 1;
+    }
+
+    fn current(&mut self) -> char {
         self.source[self.current..].chars().next().unwrap()
     }
+
     fn go_back(&mut self) {
         self.current -= 1;
     }
-    fn peak(&mut self) -> Option<char> {
-        self.source[self.current..]
-            .chars()
-            .peekable()
-            .peek()
-            .cloned()
+
+    fn add_token(&mut self, token: Token) {
+        self.tokens
+            .push(LocatedToken::new(token, self.line, self.row));
     }
 
-    fn add_token(&mut self, token_type: TokenType<'a>) {
-        self.tokens.push(Token::new(token_type, self.line));
+    fn push_string(&mut self) {
+        self.add_token(Token::StringLitteral(
+            // +1 to remove ""
+            self.source[self.start + 1..self.current].to_string(),
+        ));
+        // self.go_back();
+    }
+    fn _push_escape_in_string(&mut self) {
+        todo!();
+        // self.go_back();
+    }
+
+    fn push_number(&mut self) {
+        let s = &self.source[self.start..self.current].as_bytes();
+        let mut base: f64 = 0.0;
+        for i in 0..s.len() {
+            let c = s[i] - '0' as u8;
+            assert!(c > 0 && c < 9);
+            base *= 10.;
+            base += c as f64;
+        }
+        self.add_token(Token::Number(base));
+        self.go_back();
+    }
+
+    fn push_identifier_or_keyword(&mut self) {
+        let s = self.source[self.start..self.current].to_string();
+        if let Some(kw) = KEY_WORD_STR.get(s.as_str()) {
+            self.add_token(Token::Single(SimpleToken::KeyWord(*kw)));
+        } else {
+            self.add_token(Token::Identifier(s));
+        }
+        self.go_back();
     }
 
     pub fn lex(&mut self) {
         while !self.is_at_end() {
-            let c = self.advance();
+            let c = self.current();
             if c == '\n' {
+                // self.advance();
                 self.line += 1;
+                self.row = 0;
             }
-            // let fsm_result = self.fsm[c as u8]
+            let (new_state, action) = self.fsm.compute(c as u8, self.state);
+            println!("{:#?} {} {:#?}", self.state, c, new_state);
+            match action {
+                Action::None => (),
+                Action::Push(token_type) => self.add_token(Token::Single(token_type)),
+                Action::PushString => self.push_string(),
+                Action::PushNumber => self.push_number(),
+                Action::PushEscapedInString => self.push_string(),
+                Action::PushIdentifierOrKeyWord => self.push_identifier_or_keyword(),
+                Action::Error => {
+                    println!("{:#?}", self.tokens);
+                    self.error(format!(
+                        "Error: Unexpected character {c} at in {}:{}:{}",
+                        self.source_name, self.line, self.row,
+                    ));
+                    return;
+                } // Action::Last => {
+                  //     if new_state != State::Default {
+                  //         self.error("Unexpected EOF, please finish with ;");
+                  //     }
+                  // }
+            }
+            if [
+                State::BuildString,
+                State::BuildIdentOrKeyword,
+                State::BuildNumber,
+            ]
+            .contains(&new_state)
+                && new_state != self.state
+            {
+                self.start = self.current;
+            }
+            self.state = new_state;
+            self.row += 1;
+            self.advance();
         }
+        println!("{:#?}", self.tokens);
     }
 }
 
-// '(' => self.add_token(TokenType::LeftParen),
-//          ')' => self.add_token(TokenType::RightParen),
-//          '{' => self.add_token(TokenType::LeftBrace),
-//          '}' => self.add_token(TokenType::RightBrace),
-//          ',' => self.add_token(TokenType::Comma),
-//          '.' => self.add_token(TokenType::Dot),
-//          '-' => self.add_token(TokenType::Minus),
-//          '+' => self.add_token(TokenType::Plus),
-//          ';' => self.add_token(TokenType::SemiColon),
-//          '/' => self.add_token(TokenType::Slash),
-//          '*' => self.add_token(TokenType::Star),
-//          '!' => match self.peak() {
-//              Some('=') => {
-//                  self.add_token(TokenType::BangEqual);
-//                  self.advance();
-//              }
-//              _ => self.add_token(TokenType::Bang),
-//          },
-//          '>' => match self.peak() {
-//              Some('=') => {
-//                  self.add_token(TokenType::GreaterEqual);
-//                  self.advance();
-//              }
-//              _ => self.add_token(TokenType::Greater),
-//          },
-//          '<' => match self.peak() {
-//              Some('=') => {
-//                  self.add_token(TokenType::LessEqual);
-//                  self.advance();
-//              }
-//              _ => self.add_token(TokenType::Less),
-//          },
-//          '&' => match self.peak() {
-//              Some('&') => {
-//                  self.add_token(TokenType::And);
-//                  self.advance();
-//              }
-//              _ => self.error("& is not a valid operator"),
-//          },
-//          '|' => match self.peak() {
-//              Some('|') => {
-//                  self.add_token(TokenType::And);
-//                  self.advance();
-//              }
-//              _ => self.error("| is not a valid operator"),
-//          },
-//          // 'a' => self.add_token(TokenType::Class),
-//          // 'a' => self.add_token(TokenType::Else),
-//          // 'a' => self.add_token(TokenType::False),
-//          // 'a' => self.add_token(TokenType::Fun),
-//          // 'a' => self.add_token(TokenType::For),
-//          // 'a' => self.add_token(TokenType::If),
-//          // 'a' => self.add_token(TokenType::Nil),
-//          // 'a' => self.add_token(TokenType::Print),
-//          // 'a' => self.add_token(TokenType::Return),
-//          // 'a' => self.add_token(TokenType::Super),
-//          // 'a' => self.add_token(TokenType::This),
-//          // 'a' => self.add_token(TokenType::True),
-//          // 'a' => self.add_token(TokenType::Var),
-//          // 'a' => self.add_token(TokenType::While),
-//          // Idenfitier(&'a str),
-//          // String(&'a str),
-//          // Number(f64),
-//          unknown => self.error(format!("Unknown character: {unknown}")),
+pub fn lex(source: String, source_name: String) -> Vec<LocatedToken> {
+    let mut lexer = Lexer::new(source, source_name);
+    lexer.lex();
+    lexer.tokens
+}
+
+#[test]
+fn lexer_simple() {
+    assert_eq!(
+        vec![
+            LocatedToken::new(
+                Token::Single(SimpleToken::KeyWord(KeyWordType::Print)),
+                0,
+                0
+            ),
+            LocatedToken::new(
+                Token::Single(SimpleToken::KeyWord(KeyWordType::Print)),
+                0,
+                0
+            ),
+            LocatedToken::new(
+                Token::Single(SimpleToken::KeyWord(KeyWordType::Print)),
+                0,
+                0
+            )
+        ],
+        lex("print 1;".to_string(), "test".to_string())
+    );
+}
