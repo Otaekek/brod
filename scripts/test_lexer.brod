@@ -1,0 +1,110 @@
+(
+)
+{
+}
+,
+.
+-
++
+;
+/
+*
+=
+!
+&
+|
+
+!=
+>=
+<
+<=
+>
+
+class
+else
+false
+fun
+for
+nil
+print
+return
+super
+this
+true
+var
+while
+if
+
+foobar
+hello_world
+CamelCase
+snake_case
+UPPERCASE
+_underscore
+__double_underscore
+name123
+
+0
+42
+12345
+
+"hello"
+"world"
+""
+"hello world"
+
+var x = 42;
+var name = "brod";
+
+if (x > y) {
+    print "x is greater";
+} else {
+    print "y is greater or equal";
+}
+
+fun add(a, b) {
+    return a + b;
+}
+
+var i = 0;
+while (i < 10) {
+    print i;
+    i = i + 1;
+}
+
+class Person {
+    var name;
+    var age;
+    
+    fun init(name, age) {
+        this.name = name;
+        this.age = age;
+    }
+    
+    fun greet() {
+        print "Hello, " + this.name;
+    }
+}
+
+!!
+==
+!=
+<<
+>>
+&&
+||
+
+x = y + 5 * 3 - 2 / 1;
+
+{
+    {
+        {
+            x = 1;
+        }
+    }
+}
+
+var a = 1;
+var b = 2;
+
+print "Lexer test complete!";

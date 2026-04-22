@@ -13,8 +13,8 @@ struct CliArgs {
     source_path: Option<PathBuf>,
 }
 fn run(source: &str, source_name: String) -> bool {
-    lexer::lex(source.to_owned(), source_name);
-    print!("{source}");
+    let tokens = lexer::lex(source.to_owned(), source_name);
+    print!("{}", tokens);
     false
 }
 
@@ -32,9 +32,7 @@ fn prompt() {
 fn run_file(source: PathBuf) {
     let buf = read(&source).unwrap();
     let as_str = String::from_utf8(buf).expect("Only utf-8 encoding is accepted");
-    for line in as_str.lines() {
-        run(line, source.display().to_string());
-    }
+    run(&as_str, source.display().to_string());
 }
 fn main() {
     let args = CliArgs::parse();

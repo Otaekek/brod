@@ -25,6 +25,34 @@ pub enum SimpleToken {
     Or,
 }
 
+impl Display for SimpleToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            SimpleToken::LeftParen => "(",
+            SimpleToken::RightParen => ")",
+            SimpleToken::LeftBrace => "{",
+            SimpleToken::RightBrace => "}",
+            SimpleToken::Comma => ",",
+            SimpleToken::Dot => ".",
+            SimpleToken::Minus => "-",
+            SimpleToken::Plus => "+",
+            SimpleToken::SemiColon => ";",
+            SimpleToken::Slash => "/",
+            SimpleToken::Star => "*",
+            SimpleToken::Equal => "=",
+            SimpleToken::Bang => "!",
+            SimpleToken::BangEqual => "!=",
+            SimpleToken::Greater => ">",
+            SimpleToken::GreaterEqual => ">=",
+            SimpleToken::Less => "<",
+            SimpleToken::LessEqual => "<=",
+            SimpleToken::KeyWord(key_word_type) => return write!(f, "{}", key_word_type),
+            SimpleToken::And => "&",
+            SimpleToken::Or => "|",
+        };
+        write!(f, "{}", s)
+    }
+}
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum KeyWordType {
     Class,
@@ -43,6 +71,27 @@ pub enum KeyWordType {
     If,
 }
 
+impl Display for KeyWordType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            KeyWordType::Class => "class",
+            KeyWordType::Else => "else",
+            KeyWordType::False => "false",
+            KeyWordType::Fun => "fun",
+            KeyWordType::For => "for",
+            KeyWordType::Nil => "nil",
+            KeyWordType::Print => "print",
+            KeyWordType::Return => "return",
+            KeyWordType::Super => "super",
+            KeyWordType::This => "this",
+            KeyWordType::True => "true",
+            KeyWordType::Var => "var",
+            KeyWordType::While => "while",
+            KeyWordType::If => "if",
+        };
+        write!(f, "{}", s)
+    }
+}
 static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
     let mut m = HashMap::new();
     m.insert("class", KeyWordType::Class);
@@ -69,6 +118,16 @@ pub enum Token {
     Number(f64),
 }
 
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::Single(simple_token) => write!(f, "{}", simple_token),
+            Token::StringLitteral(str) => write!(f, "\"{}\"", str),
+            Token::Identifier(c) => write!(f, "{}", c),
+            Token::Number(n) => write!(f, "{}", n),
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocatedToken {
     pub token: Token,
@@ -76,12 +135,39 @@ pub struct LocatedToken {
     pub row: usize,
 }
 
+impl Display for LocatedToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.token)
+    }
+}
 impl LocatedToken {
     pub fn new(token: Token, line: usize, row: usize) -> Self {
         Self { token, line, row }
     }
 }
 
+#[derive(Clone, PartialEq, Default)]
+pub struct TokenVec {
+    tokens: Vec<LocatedToken>,
+}
+
+impl TokenVec {
+    pub fn push(&mut self, token: LocatedToken) {
+        self.tokens.push(token);
+    }
+}
+
+impl Display for TokenVec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, token) in self.tokens.iter().enumerate() {
+            if i > 0 {
+                write!(f, " ")?;
+            }
+            write!(f, "{}", token)?;
+        }
+        Ok(())
+    }
+}
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u8)]
 enum State {
@@ -101,6 +187,7 @@ enum State {
 enum Action {
     None,
     Push(SimpleToken),
+    PushAndGoBack(SimpleToken),
     PushString,
     PushNumber,
     PushEscapedInString,
@@ -113,18 +200,18 @@ struct Fsm {
 }
 
 impl Fsm {
-    fn transision(&mut self, c: char, input: State, output: (State, Action)) {
+    fn transition(&mut self, c: char, input: State, output: (State, Action)) {
         self.fsm[c as usize][input as usize] = output;
     }
 
-    fn transisions(&mut self, characters: &str, input: State, output: (State, Action)) {
+    fn transitions(&mut self, characters: &str, input: State, output: (State, Action)) {
         for c in characters.chars() {
             self.fsm[c as usize][input as usize] = output;
         }
     }
 
     // All characters that are not included in the input character list
-    fn transisions_anti(&mut self, characters: &str, input: State, output: (State, Action)) {
+    fn transitions_anti(&mut self, characters: &str, input: State, output: (State, Action)) {
         for c in 0..255u8 {
             let c = c as char;
             if !characters.contains(c) {
@@ -158,7 +245,7 @@ impl Fsm {
         let default = Default;
 
         // Character to skip
-        self.transisions(" \t", Default, (Default, Action::None));
+        self.transitions(" \t\n", Default, (Default, Action::None));
         // Single Tokens
         let single_token_chars = "(){},.-+*;/&|=";
         let single_token_token = [
@@ -166,50 +253,51 @@ impl Fsm {
             Slash, And, Or, Equal,
         ];
         for (character, token) in single_token_chars.chars().zip(single_token_token) {
-            self.transision(character, default, (Default, Action::Push(token)));
+            self.transition(character, default, (Default, Action::Push(token)));
         }
         // Token that may be either one character or two, like ! and !=
         // let single_or_dual_token = [Bang, Greater, Less];
-        self.transision('!', Default, (BuildBang, Action::None));
-        self.transision('=', BuildBang, (Default, Action::Push(BangEqual)));
-        self.transision('<', Default, (BuildLess, Action::None));
-        self.transision('=', BuildLess, (Default, Action::Push(LessEqual)));
-        self.transision('>', Default, (BuildGreater, Action::None));
-        self.transision('=', BuildGreater, (Default, Action::Push(GreaterEqual)));
+        self.transition('!', Default, (BuildBang, Action::None));
+        self.transition('=', BuildBang, (Default, Action::Push(BangEqual)));
+        self.transition('<', Default, (BuildLess, Action::None));
+        self.transition('=', BuildLess, (Default, Action::Push(LessEqual)));
+        self.transition('>', Default, (BuildGreater, Action::None));
+        self.transition('=', BuildGreater, (Default, Action::Push(GreaterEqual)));
 
-        self.transisions_anti("=", BuildBang, (Default, Action::Push(Bang)));
-        self.transisions_anti("=", BuildGreater, (Default, Action::Push(Greater)));
-        self.transisions_anti("=", BuildLess, (Default, Action::Push(Less)));
+        self.transitions_anti("=", BuildBang, (Default, Action::PushAndGoBack(Bang)));
+        self.transitions_anti("=", BuildGreater, (Default, Action::PushAndGoBack(Greater)));
+        self.transitions_anti("=", BuildLess, (Default, Action::PushAndGoBack(Less)));
 
         // String litterals like "Banana"
-        self.transision('\"', Default, (BuildString, Action::None));
-        self.transision('\\', BuildString, (BuildStringEscape, Action::None));
-        self.transisions_anti("\"", BuildString, (BuildString, Action::None));
-        self.transisions(
+        self.transition('\"', Default, (BuildString, Action::None));
+        self.transition('\\', BuildString, (BuildStringEscape, Action::None));
+        self.transitions_anti("\"", BuildString, (BuildString, Action::None));
+        self.transitions(
             "\\\"",
             BuildStringEscape,
             (Default, Action::PushEscapedInString),
         );
-        self.transision('\"', BuildString, (Default, Action::PushString));
+        self.transition('\"', BuildString, (Default, Action::PushString));
 
         // Identifier and keywords
-        self.transisions(&both_alpabet, Default, (BuildIdentOrKeyword, Action::None));
-        self.transisions(
+        self.transitions(&both_alpabet, Default, (BuildIdentOrKeyword, Action::None));
+        self.transition('_', Default, (BuildIdentOrKeyword, Action::None));
+        self.transitions(
             &("_".to_string() + &alpha_numerical),
             BuildIdentOrKeyword,
             (BuildIdentOrKeyword, Action::None),
         );
-        self.transisions(
+        self.transitions(
             "&|(){},.-+*;/<>! \n",
             BuildIdentOrKeyword,
             (Default, Action::PushIdentifierOrKeyWord),
         );
 
         // Numbers
-        self.transisions(digits, Default, (BuildNumber, Action::None));
-        self.transisions(digits, BuildNumber, (BuildNumber, Action::None));
-        // self.transision('.', BuildNumber, (BuildNumber, Action::None)); TODO
-        self.transisions(
+        self.transitions(digits, Default, (BuildNumber, Action::None));
+        self.transitions(digits, BuildNumber, (BuildNumber, Action::None));
+        // self.transition('.', BuildNumber, (BuildNumber, Action::None)); TODO
+        self.transitions(
             ")}&|,-+*;/<>! \n",
             BuildNumber,
             (Default, Action::PushNumber),
@@ -225,7 +313,7 @@ struct Lexer {
     line: usize,
     row: usize,
     state: State,
-    pub tokens: Vec<LocatedToken>,
+    pub tokens: TokenVec,
 }
 
 impl Lexer {
@@ -237,17 +325,20 @@ impl Lexer {
             fsm: fsm,
             source,
             source_name,
-            tokens: vec![],
-            line: 0,
+            tokens: Default::default(),
+            line: 1,
             start: 0,
             current: 0,
             state: State::Default,
-            row: 0,
+            row: 1,
         }
     }
 
     fn error(&self, message: impl Display) {
-        eprintln!("Error: line {}: {message}", self.line);
+        eprintln!(
+            "Error: {message} at {}:{}:{}",
+            self.source_name, self.line, self.row
+        );
     }
 
     fn is_at_end(&self) -> bool {
@@ -264,6 +355,7 @@ impl Lexer {
 
     fn go_back(&mut self) {
         self.current -= 1;
+        self.row -= 1;
     }
 
     fn add_token(&mut self, token: Token) {
@@ -276,11 +368,9 @@ impl Lexer {
             // +1 to remove ""
             self.source[self.start + 1..self.current].to_string(),
         ));
-        // self.go_back();
     }
     fn _push_escape_in_string(&mut self) {
         todo!();
-        // self.go_back();
     }
 
     fn push_number(&mut self) {
@@ -288,7 +378,6 @@ impl Lexer {
         let mut base: f64 = 0.0;
         for i in 0..s.len() {
             let c = s[i] - '0' as u8;
-            assert!(c > 0 && c < 9);
             base *= 10.;
             base += c as f64;
         }
@@ -310,31 +399,29 @@ impl Lexer {
         while !self.is_at_end() {
             let c = self.current();
             if c == '\n' {
-                // self.advance();
                 self.line += 1;
-                self.row = 0;
+                self.row = 1;
             }
             let (new_state, action) = self.fsm.compute(c as u8, self.state);
-            println!("{:#?} {} {:#?}", self.state, c, new_state);
             match action {
                 Action::None => (),
-                Action::Push(token_type) => self.add_token(Token::Single(token_type)),
+                Action::Push(simple_token) => self.add_token(Token::Single(simple_token)),
                 Action::PushString => self.push_string(),
                 Action::PushNumber => self.push_number(),
                 Action::PushEscapedInString => self.push_string(),
                 Action::PushIdentifierOrKeyWord => self.push_identifier_or_keyword(),
                 Action::Error => {
-                    println!("{:#?}", self.tokens);
-                    self.error(format!(
-                        "Error: Unexpected character {c} at in {}:{}:{}",
-                        self.source_name, self.line, self.row,
-                    ));
+                    self.error(format!("Error: Unexpected character \"{c}\""));
                     return;
                 } // Action::Last => {
-                  //     if new_state != State::Default {
-                  //         self.error("Unexpected EOF, please finish with ;");
-                  //     }
-                  // }
+                //     if new_state != State::Default {
+                //         self.error("Unexpected EOF, please finish with ;");
+                //     }
+                // }
+                Action::PushAndGoBack(simple_token) => {
+                    self.add_token(Token::Single(simple_token));
+                    self.go_back();
+                }
             }
             if [
                 State::BuildString,
@@ -350,36 +437,11 @@ impl Lexer {
             self.row += 1;
             self.advance();
         }
-        println!("{:#?}", self.tokens);
     }
 }
 
-pub fn lex(source: String, source_name: String) -> Vec<LocatedToken> {
+pub fn lex(source: String, source_name: String) -> TokenVec {
     let mut lexer = Lexer::new(source, source_name);
     lexer.lex();
     lexer.tokens
-}
-
-#[test]
-fn lexer_simple() {
-    assert_eq!(
-        vec![
-            LocatedToken::new(
-                Token::Single(SimpleToken::KeyWord(KeyWordType::Print)),
-                0,
-                0
-            ),
-            LocatedToken::new(
-                Token::Single(SimpleToken::KeyWord(KeyWordType::Print)),
-                0,
-                0
-            ),
-            LocatedToken::new(
-                Token::Single(SimpleToken::KeyWord(KeyWordType::Print)),
-                0,
-                0
-            )
-        ],
-        lex("print 1;".to_string(), "test".to_string())
-    );
 }
