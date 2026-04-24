@@ -12,6 +12,7 @@ pub enum SimpleToken {
     Plus,
     SemiColon,
     Slash,
+    Comment,
     Star,
     Equal,
     Bang,
@@ -49,6 +50,7 @@ impl Display for SimpleToken {
             SimpleToken::KeyWord(key_word_type) => return write!(f, "{}", key_word_type),
             SimpleToken::And => "&",
             SimpleToken::Or => "|",
+            SimpleToken::Comment => unreachable!(),
         };
         write!(f, "{}", s)
     }
@@ -175,8 +177,11 @@ enum State {
     BuildBang,
     BuildLess,
     BuildGreater,
+    BuildComment,
+    Comment,
     BuildIdentOrKeyword, // May end up being a keyword or an identifier
     BuildNumber,
+    BuildNumberWithPoint,
     BuildString,
     BuildStringEscape,
     Last,
@@ -247,11 +252,12 @@ impl Fsm {
         // Character to skip
         self.transitions(" \t\n", Default, (Default, Action::None));
         // Single Tokens
-        let single_token_chars = "(){},.-+*;/&|=";
+        let single_token_chars = "(){},.-+*;&|=";
         let single_token_token = [
             LeftParen, RightParen, LeftBrace, RightBrace, Comma, Dot, Minus, Plus, Star, SemiColon,
-            Slash, And, Or, Equal,
+            And, Or, Equal,
         ];
+        assert!(single_token_token.len() == single_token_chars.len());
         for (character, token) in single_token_chars.chars().zip(single_token_token) {
             self.transition(character, default, (Default, Action::Push(token)));
         }
@@ -263,10 +269,21 @@ impl Fsm {
         self.transition('=', BuildLess, (Default, Action::Push(LessEqual)));
         self.transition('>', Default, (BuildGreater, Action::None));
         self.transition('=', BuildGreater, (Default, Action::Push(GreaterEqual)));
+        self.transition('/', Default, (BuildComment, Action::None));
+        self.transition('/', BuildComment, (State::Comment, Action::None));
 
         self.transitions_anti("=", BuildBang, (Default, Action::PushAndGoBack(Bang)));
         self.transitions_anti("=", BuildGreater, (Default, Action::PushAndGoBack(Greater)));
         self.transitions_anti("=", BuildLess, (Default, Action::PushAndGoBack(Less)));
+        self.transitions_anti(
+            "/;)}",
+            BuildComment,
+            (Default, Action::PushAndGoBack(Slash)),
+        );
+
+        // Skip Everything until \n in a commented line
+        self.transitions_anti("", State::Comment, (State::Comment, Action::None));
+        self.transition('\n', State::Comment, (Default, Action::None));
 
         // String litterals like "Banana"
         self.transition('\"', Default, (BuildString, Action::None));
@@ -296,10 +313,20 @@ impl Fsm {
         // Numbers
         self.transitions(digits, Default, (BuildNumber, Action::None));
         self.transitions(digits, BuildNumber, (BuildNumber, Action::None));
-        // self.transition('.', BuildNumber, (BuildNumber, Action::None)); TODO
+        self.transitions(
+            digits,
+            BuildNumberWithPoint,
+            (BuildNumberWithPoint, Action::None),
+        );
+        self.transition('.', BuildNumber, (BuildNumberWithPoint, Action::None));
         self.transitions(
             ")}&|,-+*;/<>! \n",
             BuildNumber,
+            (Default, Action::PushNumber),
+        );
+        self.transitions(
+            ")}&|,-+*;/<>! \n",
+            BuildNumberWithPoint,
             (Default, Action::PushNumber),
         );
     }
@@ -374,14 +401,9 @@ impl Lexer {
     }
 
     fn push_number(&mut self) {
-        let s = &self.source[self.start..self.current].as_bytes();
-        let mut base: f64 = 0.0;
-        for i in 0..s.len() {
-            let c = s[i] - '0' as u8;
-            base *= 10.;
-            base += c as f64;
-        }
-        self.add_token(Token::Number(base));
+        let s = &self.source[self.start..self.current];
+        let number: f64 = s.parse().unwrap();
+        self.add_token(Token::Number(number));
         self.go_back();
     }
 
