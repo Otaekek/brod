@@ -1,7 +1,8 @@
 mod lexer;
+mod parser;
 use std::{
     fs::read,
-    io::{stdin, stdout, Write},
+    io::{Write, stdin, stdout},
     path::PathBuf,
     process::exit,
 };

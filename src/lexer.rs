@@ -12,7 +12,7 @@ pub enum SimpleToken {
     Plus,
     SemiColon,
     Slash,
-    Comment,
+    // Comment,
     Star,
     Equal,
     Bang,
@@ -50,7 +50,7 @@ impl Display for SimpleToken {
             SimpleToken::KeyWord(key_word_type) => return write!(f, "{}", key_word_type),
             SimpleToken::And => "&",
             SimpleToken::Or => "|",
-            SimpleToken::Comment => unreachable!(),
+            // SimpleToken::Comment => unreachable!(),
         };
         write!(f, "{}", s)
     }
@@ -150,7 +150,7 @@ impl LocatedToken {
 
 #[derive(Clone, PartialEq, Default)]
 pub struct TokenVec {
-    tokens: Vec<LocatedToken>,
+    pub tokens: Vec<LocatedToken>,
 }
 
 impl TokenVec {
