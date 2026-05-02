@@ -1,8 +1,9 @@
 mod lexer;
 mod parser;
+pub mod rpn;
 use std::{
     fs::read,
-    io::{Write, stdin, stdout},
+    io::{stdin, stdout, Write},
     path::PathBuf,
     process::exit,
 };
