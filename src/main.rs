@@ -10,13 +10,22 @@ use std::{
 
 use clap::Parser;
 
+use crate::{parser::ASTBuilder, rpn::RpnCalculator};
+
 #[derive(Clone, Debug, Parser)]
 struct CliArgs {
     source_path: Option<PathBuf>,
 }
+// 1 + 3 * 4 / 5 * 6 + 7
 fn run(source: &str, source_name: String) -> bool {
     let tokens = lexer::lex(source.to_owned(), source_name);
-    print!("{}", tokens);
+    let ast = ASTBuilder::parse(tokens);
+    let mut rpn = RpnCalculator::default();
+    if !ast.roots.is_empty() {
+        ast.traverse_lrn(ast.roots[0], &mut rpn);
+        println!("{}", rpn);
+    }
+    println!("{:#?}", ast);
     false
 }
 

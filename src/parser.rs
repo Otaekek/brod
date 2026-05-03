@@ -1,11 +1,11 @@
-use crate::lexer::{Token, TokenVec};
+use crate::lexer::{SimpleToken, Token, TokenVec};
 
 use super::lexer;
 #[derive(Copy, Clone, Debug)]
 pub enum Operator {
     Equal,
     NotEqual,
-    Assignment,
+    // Assignment,
     Lesser,
     LesserEqual,
     Greater,
@@ -23,7 +23,7 @@ pub enum Unary {
 }
 
 #[derive(Clone, Debug)]
-pub enum Literal {
+pub enum Terminal {
     Number(f64),
     String(String),
     True,
@@ -39,7 +39,7 @@ pub struct Binary {
 
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Literal(Literal),
+    Terminal(Terminal),
     Unary(Unary),
     Binary(Binary),
 }
@@ -58,38 +58,32 @@ impl AST {
         }
     }
 
-    fn traverse_post<T: ASTVisitor>(&self, input: ExprID, visitor: &mut T) {
+    pub fn traverse_lrn<T: ASTVisitor>(&self, input: ExprID, visitor: &mut T) {
         match &self.arena[input] {
-            Expr::Literal(literal) => visitor.visit_literal(&literal),
+            Expr::Terminal(literal) => visitor.visit_literal(&literal),
             Expr::Unary(unary) => visitor.visit_unary(&self.arena, &unary),
             Expr::Binary(binary) => {
-                self.traverse_post(binary.right, visitor);
-                self.traverse_post(binary.left, visitor);
+                self.traverse_lrn(binary.left, visitor);
+                self.traverse_lrn(binary.right, visitor);
                 visitor.visit_binary(&self.arena, &binary);
-            }
-        };
-    }
-    fn traverse_pre<T: ASTVisitor>(&self, input: ExprID, visitor: &mut T) {
-        match &self.arena[input] {
-            Expr::Literal(literal) => visitor.visit_literal(&literal),
-            Expr::Unary(unary) => visitor.visit_unary(&self.arena, &unary),
-            Expr::Binary(binary) => {
-                visitor.visit_binary(&self.arena, &binary);
-                self.traverse_post(binary.right, visitor);
-                self.traverse_post(binary.left, visitor);
             }
         };
     }
 }
 pub trait ASTVisitor {
     fn visit_binary(&mut self, arena: &[Expr], binary: &Binary);
-    fn visit_literal(&mut self, literal: &Literal);
+    fn visit_literal(&mut self, literal: &Terminal);
     fn visit_unary(&mut self, arena: &[Expr], unary: &Unary);
+}
+pub enum ASTError {
+    Ok,
+    Err,
 }
 pub struct ASTBuilder {
     current_index: usize,
     tokens: TokenVec,
     ast: AST,
+    error_state: ASTError,
 }
 
 // expression → equality ;
@@ -103,17 +97,136 @@ pub struct ASTBuilder {
 // | "(" expression ")"
 //
 impl ASTBuilder {
-    // fn expression(&mut self) -> Expr<'a> {
-    //     self.comparison()
-    // }
-    // fn comparison(&mut self) -> Expr<'a> {
-    //     let term = self.term();
-    //     term
-    // }
-
     fn emit(&mut self, expr: Expr) -> ExprID {
         self.ast.arena.push(expr);
         self.ast.arena.len() - 1
+    }
+    fn emit_terminal(&mut self, terminal: Terminal) -> ExprID {
+        self.ast.arena.push(Expr::Terminal(terminal));
+        self.ast.arena.len() - 1
+    }
+
+    fn error(msg: &str) -> ASTError {
+        eprintln!("{msg}");
+        ASTError::Err
+    }
+    fn expression(&mut self) -> Result<ExprID, ASTError> {
+        self.equality()
+    }
+    fn equality(&mut self) -> Result<ExprID, ASTError> {
+        let mut left = self.comparison()?;
+        while let Some(simple_token) = self.my_match(&[SimpleToken::Equal, SimpleToken::BangEqual])
+        {
+            let operator = match simple_token {
+                SimpleToken::BangEqual => Operator::NotEqual,
+                SimpleToken::Equal => Operator::Equal,
+                _ => unreachable!(),
+            };
+            let right = self.comparison()?;
+            left = self.emit(Expr::Binary(Binary {
+                left,
+                operator,
+                right,
+            }));
+        }
+        Ok(left)
+    }
+    fn comparison(&mut self) -> Result<ExprID, ASTError> {
+        let mut left = self.term()?;
+        while let Some(simple_token) = self.my_match(&[
+            SimpleToken::Greater,
+            SimpleToken::GreaterEqual,
+            SimpleToken::Less,
+            SimpleToken::LessEqual,
+        ]) {
+            let operator = match simple_token {
+                SimpleToken::GreaterEqual => Operator::GreaterEqual,
+                SimpleToken::Greater => Operator::Greater,
+                SimpleToken::LessEqual => Operator::LesserEqual,
+                SimpleToken::Less => Operator::Lesser,
+                _ => unreachable!(),
+            };
+            let right = self.term()?;
+            left = self.emit(Expr::Binary(Binary {
+                left,
+                operator,
+                right,
+            }));
+        }
+        Ok(left)
+    }
+    fn term(&mut self) -> Result<ExprID, ASTError> {
+        let mut left = self.factor()?;
+        while let Some(simple_token) = self.my_match(&[SimpleToken::Plus, SimpleToken::Minus]) {
+            let operator = match simple_token {
+                SimpleToken::Minus => Operator::Minus,
+                SimpleToken::Plus => Operator::Plus,
+                _ => unreachable!(),
+            };
+            let right = self.factor()?;
+            left = self.emit(Expr::Binary(Binary {
+                left,
+                operator,
+                right,
+            }));
+        }
+        Ok(left)
+    }
+    fn factor(&mut self) -> Result<ExprID, ASTError> {
+        let mut left = self.unary()?;
+        while let Some(simple_token) = self.my_match(&[SimpleToken::Star, SimpleToken::Slash]) {
+            let operator = match simple_token {
+                SimpleToken::Slash => Operator::Slash,
+                SimpleToken::Star => Operator::Star,
+                _ => unreachable!(),
+            };
+            let right = self.unary()?;
+            left = self.emit(Expr::Binary(Binary {
+                left,
+                operator,
+                right,
+            }));
+        }
+        Ok(left)
+    }
+
+    fn unary(&mut self) -> Result<ExprID, ASTError> {
+        if let Some(p) = self.my_match(&[SimpleToken::Bang, SimpleToken::Minus]) {
+            let expr = self.unary()?;
+            match p {
+                SimpleToken::Bang => Ok(self.emit(Expr::Unary(Unary::Not(expr)))),
+                SimpleToken::Minus => Ok(self.emit(Expr::Unary(Unary::Minus(expr)))),
+                _ => Err(ASTError::Err),
+            }
+        } else if self.my_match(&[SimpleToken::LeftParen]).is_some() {
+            let ret = self.primary();
+            self.consume(SimpleToken::RightParen)?;
+            ret
+        } else {
+            self.primary()
+        }
+    }
+
+    fn primary(&mut self) -> Result<ExprID, ASTError> {
+        if let Some(_) = self.my_match(&[SimpleToken::LeftParen]) {
+            let expression = self.expression()?;
+            self.consume(SimpleToken::RightParen)?;
+            return Ok(expression);
+        }
+        match self.advance().clone() {
+            Token::Single(token) => match token {
+                lexer::SimpleToken::KeyWord(key_word_type) => match key_word_type {
+                    lexer::KeyWordType::False => Ok(self.emit_terminal(Terminal::False)),
+                    lexer::KeyWordType::True => Ok(self.emit_terminal(Terminal::True)),
+                    lexer::KeyWordType::Nil => Ok(self.emit_terminal(Terminal::Nil)),
+                    _ => Err(Self::error("Unexpected Keyword")),
+                },
+                _ => Err(Self::error("Unexpected Token")),
+            },
+            Token::StringLitteral(s) => Ok(self.emit_terminal(Terminal::String(s))),
+            Token::Identifier(_) => Err(Self::error("Unexpected Token")),
+            Token::Number(n) => Ok(self.emit_terminal(Terminal::Number(n))),
+        }
     }
     // fn equality(&mut self) -> Expr<'a> {
     //     let comparison = self.comparison();
@@ -140,6 +253,15 @@ impl ASTBuilder {
     fn previous(&mut self) -> &Token {
         &self.tokens.tokens[self.current_index - 1].token
     }
+    fn previous_simple(&mut self) -> Result<SimpleToken, ASTError> {
+        let token = &self.tokens.tokens[self.current_index - 1].token;
+        match token {
+            Token::Single(simple_token) => Ok(*simple_token),
+            Token::StringLitteral(_) => Err(Self::error("Unexpected token")),
+            Token::Identifier(_) => Err(Self::error("Unexpected token")),
+            Token::Number(_) => Err(Self::error("Unexpected token")),
+        }
+    }
 
     fn check(&self, token: &Token) -> bool {
         if self.current_index == self.tokens.tokens.len() {
@@ -148,27 +270,43 @@ impl ASTBuilder {
 
         self.peek() == token
     }
-    fn consume(&mut self, token: &Token) {
-        if self.check(token) {
-            self.advance();
+    fn consume(&mut self, token: SimpleToken) -> Result<&Token, ASTError> {
+        if self.check(&Token::Single(token)) {
+            Ok(self.advance())
+        } else {
+            Err(ASTError::Err)
         }
-        // error
     }
-    fn my_match(&mut self, tokens: &[Token]) -> bool {
+
+    fn my_match(&mut self, tokens: &[SimpleToken]) -> Option<SimpleToken> {
+        assert!(!tokens.is_empty());
         for token in tokens {
-            if self.check(token) {
-                self.advance();
-                return true;
+            if self.check(&Token::Single(*token)) {
+                let token = self.advance();
+                return match token {
+                    Token::Single(simple_token) => Some(*simple_token),
+                    _ => None,
+                };
             }
         }
-        false
+        None
     }
+
     pub fn parse(input: TokenVec) -> AST {
-        let mut ret = Self {
+        let mut builder = Self {
             current_index: 0,
             tokens: input,
             ast: AST::new(),
+            error_state: ASTError::Ok,
         };
-        ret.ast
+        while builder.current_index.clone() < builder.tokens.tokens.len() {
+            let expression = builder.expression();
+            match expression {
+                Ok(expression) => builder.ast.roots.push(expression),
+                Err(_) => eprintln!("Error"),
+            }
+        }
+
+        builder.ast
     }
 }
