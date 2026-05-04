@@ -1,12 +1,14 @@
 use std::fmt::Display;
 
-use crate::parser::{ASTVisitor, Binary, Expr, ExprID, Operator, Terminal, Unary};
+use crate::{
+    lexer::TokenVec,
+    parser::{ASTVisitor, Binary, Expr, ExprID, Operator, Terminal, Unary, AST},
+};
 
 #[derive(Copy, Clone)]
 enum RpnToken {
     Operator(super::parser::Operator),
     Number(f64),
-    Not,
     Minus,
 }
 impl Display for RpnToken {
@@ -26,7 +28,6 @@ impl Display for RpnToken {
                 Operator::Star => write!(f, "{}", "*"),
             },
             RpnToken::Number(n) => write!(f, "{}", n),
-            RpnToken::Not => write!(f, "{}", "+"),
             RpnToken::Minus => write!(f, "{}", "-"),
         }
     }
@@ -45,16 +46,42 @@ impl Display for RpnCalculator {
     }
 }
 impl RpnCalculator {
-    fn internal_solve(ops: &[RpnToken]) -> f64 {
-        let op = ops[0];
-        let left = ops[1];
-        Self::internal_solve(&ops[2..])
-    }
-    pub fn solve(mut self) -> f64 {
-        self.ops.reverse();
-        let mut left = self.ops.first().unwrap();
-
-        0.0
+    pub fn solve(ast: &AST) -> Option<f64> {
+        let mut rpn = Self::default();
+        if ast.roots.is_empty() {
+            return None;
+        }
+        ast.traverse_lrn(ast.roots[0], &mut rpn);
+        if rpn.ops.len() < 3 {
+            return None;
+        }
+        fn compute(left: f64, right: f64, op: Operator) -> f64 {
+            match op {
+                Operator::Plus => left + right,
+                Operator::Minus => left - right,
+                Operator::Slash => left / right,
+                Operator::Star => left * right,
+                _ => unreachable!(),
+            }
+        }
+        let mut stack: Vec<f64> = Vec::with_capacity(rpn.ops.len());
+        stack.resize(stack.capacity(), 0.0);
+        let mut stack_idx = 0;
+        for op in &rpn.ops[0..] {
+            match op {
+                RpnToken::Operator(operator) => {
+                    stack_idx -= 1;
+                    let res = compute(stack[stack_idx - 1], stack[stack_idx], *operator);
+                    stack[stack_idx - 1] = res;
+                }
+                RpnToken::Number(n) => {
+                    stack[stack_idx] = *n;
+                    stack_idx += 1;
+                }
+                RpnToken::Minus => stack[stack_idx] = -stack[stack_idx],
+            }
+        }
+        Some(stack[0])
     }
 }
 fn error(msg: &str) {
@@ -75,7 +102,7 @@ impl ASTVisitor for RpnCalculator {
     }
     fn visit_unary(&mut self, arena: &[Expr], unary: &Unary) {
         match unary {
-            Unary::Not(_) => self.ops.push(RpnToken::Not),
+            Unary::Not(_) => error("invalid token"),
             Unary::Minus(_) => self.ops.push(RpnToken::Minus),
         }
     }
