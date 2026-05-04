@@ -75,15 +75,16 @@ pub trait ASTVisitor {
     fn visit_literal(&mut self, literal: &Terminal);
     fn visit_unary(&mut self, arena: &[Expr], unary: &Unary);
 }
+#[derive(Debug)]
 pub enum ASTError {
     Ok,
-    Err,
+    Eof,
+    TokenError,
 }
 pub struct ASTBuilder {
     current_index: usize,
     tokens: TokenVec,
     ast: AST,
-    error_state: ASTError,
 }
 
 // expression → equality ;
@@ -106,9 +107,13 @@ impl ASTBuilder {
         self.ast.arena.len() - 1
     }
 
-    fn error(msg: &str) -> ASTError {
-        eprintln!("{msg}");
-        ASTError::Err
+    fn error_token(&self, token_offset: i64) -> ASTError {
+        let token = self.tokens.tokens[(self.current_index as i64 + token_offset) as usize].clone();
+        eprintln!(
+            "Unexpected Token {} at {}:{}",
+            token.token, token.line, token.row,
+        );
+        ASTError::TokenError
     }
     fn expression(&mut self) -> Result<ExprID, ASTError> {
         self.equality()
@@ -196,12 +201,8 @@ impl ASTBuilder {
             match p {
                 SimpleToken::Bang => Ok(self.emit(Expr::Unary(Unary::Not(expr)))),
                 SimpleToken::Minus => Ok(self.emit(Expr::Unary(Unary::Minus(expr)))),
-                _ => Err(ASTError::Err),
+                _ => return Err(self.error_token(-1)),
             }
-        } else if self.my_match(&[SimpleToken::LeftParen]).is_some() {
-            let ret = self.primary();
-            self.consume(SimpleToken::RightParen)?;
-            ret
         } else {
             self.primary()
         }
@@ -213,41 +214,32 @@ impl ASTBuilder {
             self.consume(SimpleToken::RightParen)?;
             return Ok(expression);
         }
-        match self.advance().clone() {
+        match self.advance()?.clone() {
             Token::Single(token) => match token {
                 lexer::SimpleToken::KeyWord(key_word_type) => match key_word_type {
                     lexer::KeyWordType::False => Ok(self.emit_terminal(Terminal::False)),
                     lexer::KeyWordType::True => Ok(self.emit_terminal(Terminal::True)),
                     lexer::KeyWordType::Nil => Ok(self.emit_terminal(Terminal::Nil)),
-                    _ => Err(Self::error("Unexpected Keyword")),
+                    _ => Err(self.error_token(-1)),
                 },
-                _ => Err(Self::error("Unexpected Token")),
+                _ => Err(self.error_token(-1)),
             },
             Token::StringLitteral(s) => Ok(self.emit_terminal(Terminal::String(s))),
-            Token::Identifier(_) => Err(Self::error("Unexpected Token")),
+            Token::Identifier(_) => Err(self.error_token(-1)),
             Token::Number(n) => Ok(self.emit_terminal(Terminal::Number(n))),
         }
     }
-    // fn equality(&mut self) -> Expr<'a> {
-    //     let comparison = self.comparison();
-    //     //     while (self.my_match(&[
-    //         Token::Single(SimpleToken::Equal),
-    //         Token::Single(SimpleToken::BangEqual),
-    //     ])) {
-    //
-    // let operator = previous;
-    //         let right = self.comparison();
-    //         let expr = Expr::Binary(Binary { left: comparison, operator: (), right: right };
-    //     }
-    //     comparison
-    // }
+
     fn peek(&self) -> &Token {
         &self.tokens.tokens[self.current_index].token
     }
 
-    fn advance(&mut self) -> &Token {
+    fn advance(&mut self) -> Result<&Token, ASTError> {
+        if self.current_index == self.tokens.tokens.len() {
+            return Err(ASTError::Eof);
+        }
         self.current_index += 1;
-        self.previous()
+        Ok(self.previous())
     }
 
     fn previous(&mut self) -> &Token {
@@ -257,9 +249,9 @@ impl ASTBuilder {
         let token = &self.tokens.tokens[self.current_index - 1].token;
         match token {
             Token::Single(simple_token) => Ok(*simple_token),
-            Token::StringLitteral(_) => Err(Self::error("Unexpected token")),
-            Token::Identifier(_) => Err(Self::error("Unexpected token")),
-            Token::Number(_) => Err(Self::error("Unexpected token")),
+            Token::StringLitteral(_) => Err(self.error_token(-1)),
+            Token::Identifier(_) => Err(self.error_token(-1)),
+            Token::Number(_) => Err(self.error_token(-1)),
         }
     }
 
@@ -272,9 +264,9 @@ impl ASTBuilder {
     }
     fn consume(&mut self, token: SimpleToken) -> Result<&Token, ASTError> {
         if self.check(&Token::Single(token)) {
-            Ok(self.advance())
+            self.advance()
         } else {
-            Err(ASTError::Err)
+            Err(self.error_token(0))
         }
     }
 
@@ -282,7 +274,7 @@ impl ASTBuilder {
         assert!(!tokens.is_empty());
         for token in tokens {
             if self.check(&Token::Single(*token)) {
-                let token = self.advance();
+                let token = self.advance().unwrap();
                 return match token {
                     Token::Single(simple_token) => Some(*simple_token),
                     _ => None,
@@ -297,13 +289,12 @@ impl ASTBuilder {
             current_index: 0,
             tokens: input,
             ast: AST::new(),
-            error_state: ASTError::Ok,
         };
         while builder.current_index.clone() < builder.tokens.tokens.len() {
             let expression = builder.expression();
             match expression {
                 Ok(expression) => builder.ast.roots.push(expression),
-                Err(_) => eprintln!("Error"),
+                Err(err) => eprintln!("Error: {:#?}", err),
             }
         }
 

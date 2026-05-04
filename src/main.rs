@@ -20,10 +20,8 @@ struct CliArgs {
 fn run(source: &str, source_name: String) -> bool {
     let tokens = lexer::lex(source.to_owned(), source_name);
     let ast = ASTBuilder::parse(tokens);
-    if !ast.roots.is_empty() {
-        println!("{:#?}", rpn::RpnCalculator::solve(&ast));
-    }
-    // println!("{:#?}", ast);
+    println!("{:#?}", ast);
+    // println!("{:#?}", rpn::RpnCalculator::solve(&ast));
     false
 }
 
