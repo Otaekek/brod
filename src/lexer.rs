@@ -15,6 +15,7 @@ pub enum SimpleToken {
     // Comment,
     Star,
     Equal,
+    EqualEqual,
     Bang,
     BangEqual,
     Greater,
@@ -41,6 +42,7 @@ impl Display for SimpleToken {
             SimpleToken::Slash => "/",
             SimpleToken::Star => "*",
             SimpleToken::Equal => "=",
+            SimpleToken::EqualEqual => "==",
             SimpleToken::Bang => "!",
             SimpleToken::BangEqual => "!=",
             SimpleToken::Greater => ">",
@@ -177,6 +179,7 @@ enum State {
     BuildBang,
     BuildLess,
     BuildGreater,
+    BuildEqualEqual,
     BuildComment,
     Comment,
     BuildIdentOrKeyword, // May end up being a keyword or an identifier
@@ -252,17 +255,16 @@ impl Fsm {
         // Character to skip
         self.transitions(" \t\n", Default, (Default, Action::None));
         // Single Tokens
-        let single_token_chars = "(){},.-+*;&|=";
+        let single_token_chars = "(){},.-+*;&|";
         let single_token_token = [
             LeftParen, RightParen, LeftBrace, RightBrace, Comma, Dot, Minus, Plus, Star, SemiColon,
-            And, Or, Equal,
+            And, Or,
         ];
         assert!(single_token_token.len() == single_token_chars.len());
         for (character, token) in single_token_chars.chars().zip(single_token_token) {
             self.transition(character, default, (Default, Action::Push(token)));
         }
         // Token that may be either one character or two, like ! and !=
-        // let single_or_dual_token = [Bang, Greater, Less];
         self.transition('!', Default, (BuildBang, Action::None));
         self.transition('=', BuildBang, (Default, Action::Push(BangEqual)));
         self.transition('<', Default, (BuildLess, Action::None));
@@ -271,8 +273,15 @@ impl Fsm {
         self.transition('=', BuildGreater, (Default, Action::Push(GreaterEqual)));
         self.transition('/', Default, (BuildComment, Action::None));
         self.transition('/', BuildComment, (State::Comment, Action::None));
+        self.transition('=', Default, (BuildEqualEqual, Action::None));
+        self.transitions("=", BuildEqualEqual, (Default, Action::Push(EqualEqual)));
 
         self.transitions_anti("=", BuildBang, (Default, Action::PushAndGoBack(Bang)));
+        self.transitions_anti(
+            "=",
+            BuildEqualEqual,
+            (Default, Action::PushAndGoBack(Equal)),
+        );
         self.transitions_anti("=", BuildGreater, (Default, Action::PushAndGoBack(Greater)));
         self.transitions_anti("=", BuildLess, (Default, Action::PushAndGoBack(Less)));
         self.transitions_anti(
@@ -305,7 +314,7 @@ impl Fsm {
             (BuildIdentOrKeyword, Action::None),
         );
         self.transitions(
-            "&|(){},.-+*;/<>! \n",
+            "=&|(){},.-+*;/<>! \n",
             BuildIdentOrKeyword,
             (Default, Action::PushIdentifierOrKeyWord),
         );
@@ -320,12 +329,12 @@ impl Fsm {
         );
         self.transition('.', BuildNumber, (BuildNumberWithPoint, Action::None));
         self.transitions(
-            ")}&|,-+*;/<>! \n",
+            "=)}&|,-+*;/<>! \n",
             BuildNumber,
             (Default, Action::PushNumber),
         );
         self.transitions(
-            ")}&|,-+*;/<>! \n",
+            "=)}&|,-+*;/<>! \n",
             BuildNumberWithPoint,
             (Default, Action::PushNumber),
         );
@@ -363,7 +372,7 @@ impl Lexer {
 
     fn error(&self, message: impl Display) {
         eprintln!(
-            "Error: {message} at {}:{}:{}",
+            "Lexer: {message} at {}:{}:{}",
             self.source_name, self.line, self.row
         );
     }

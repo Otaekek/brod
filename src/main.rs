@@ -10,7 +10,7 @@ use std::{
 
 use clap::Parser;
 
-use crate::{parser::ASTBuilder, rpn::RpnCalculator};
+use crate::parser::ASTBuilder;
 
 #[derive(Clone, Debug, Parser)]
 struct CliArgs {

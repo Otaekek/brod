@@ -1,4 +1,6 @@
-use crate::lexer::{SimpleToken, Token, TokenVec};
+use std::fmt::Display;
+
+use crate::lexer::{LocatedToken, SimpleToken, Token, TokenVec};
 
 use super::lexer;
 #[derive(Copy, Clone, Debug)]
@@ -77,9 +79,21 @@ pub trait ASTVisitor {
 }
 #[derive(Debug)]
 pub enum ASTError {
-    Ok,
     Eof,
-    TokenError,
+    TokenError(LocatedToken),
+}
+
+impl Display for ASTError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ASTError::Eof => write!(f, "Error: {}", "Unexpected End Of File"),
+            ASTError::TokenError(located_token) => write!(
+                f,
+                "Error: Unexpected token \"{}\" at {}:{}",
+                located_token.token, located_token.line, located_token.row
+            ),
+        }
+    }
 }
 pub struct ASTBuilder {
     current_index: usize,
@@ -109,22 +123,19 @@ impl ASTBuilder {
 
     fn error_token(&self, token_offset: i64) -> ASTError {
         let token = self.tokens.tokens[(self.current_index as i64 + token_offset) as usize].clone();
-        eprintln!(
-            "Unexpected Token {} at {}:{}",
-            token.token, token.line, token.row,
-        );
-        ASTError::TokenError
+        ASTError::TokenError(token)
     }
     fn expression(&mut self) -> Result<ExprID, ASTError> {
         self.equality()
     }
     fn equality(&mut self) -> Result<ExprID, ASTError> {
         let mut left = self.comparison()?;
-        while let Some(simple_token) = self.my_match(&[SimpleToken::Equal, SimpleToken::BangEqual])
+        while let Some(simple_token) =
+            self.my_match(&[SimpleToken::EqualEqual, SimpleToken::BangEqual])
         {
             let operator = match simple_token {
                 SimpleToken::BangEqual => Operator::NotEqual,
-                SimpleToken::Equal => Operator::Equal,
+                SimpleToken::EqualEqual => Operator::Equal,
                 _ => unreachable!(),
             };
             let right = self.comparison()?;
@@ -284,20 +295,31 @@ impl ASTBuilder {
         None
     }
 
-    pub fn parse(input: TokenVec) -> AST {
+    pub fn parse(input: TokenVec) -> Result<AST, ASTError> {
         let mut builder = Self {
             current_index: 0,
             tokens: input,
             ast: AST::new(),
         };
+        let mut recovery_mode = false;
         while builder.current_index.clone() < builder.tokens.tokens.len() {
-            let expression = builder.expression();
-            match expression {
-                Ok(expression) => builder.ast.roots.push(expression),
-                Err(err) => eprintln!("Error: {:#?}", err),
+            if recovery_mode {
+                let token = builder.advance()?;
+                if token == &Token::Single(SimpleToken::SemiColon) {
+                    recovery_mode = false;
+                }
+            } else {
+                let expression = builder.expression();
+                match expression {
+                    Ok(expression) => builder.ast.roots.push(expression),
+                    Err(err) => {
+                        eprintln!("{}", err);
+                        recovery_mode = true;
+                    }
+                }
             }
         }
 
-        builder.ast
+        Ok(builder.ast)
     }
 }
