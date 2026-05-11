@@ -1,9 +1,6 @@
 use std::fmt::Display;
 
-use crate::{
-    lexer::TokenVec,
-    parser::{ASTVisitor, Binary, Expr, ExprID, Operator, Terminal, Unary, AST},
-};
+use crate::parser::{ASTVisitor, Binary, Expr, Operator, Terminal, Unary, AST};
 
 #[derive(Copy, Clone)]
 enum RpnToken {
@@ -88,7 +85,7 @@ fn error(msg: &str) {
     eprintln!("RPN error: {msg}");
 }
 impl ASTVisitor for RpnCalculator {
-    fn visit_binary(&mut self, arena: &[Expr], binary: &Binary) {
+    fn visit_binary(&mut self, _arena: &[Expr], binary: &Binary) {
         self.ops.push(RpnToken::Operator(binary.operator));
     }
     fn visit_literal(&mut self, literal: &Terminal) {
@@ -101,7 +98,7 @@ impl ASTVisitor for RpnCalculator {
             Terminal::SemiColon => error("Invalid Token"),
         }
     }
-    fn visit_unary(&mut self, arena: &[Expr], unary: &Unary) {
+    fn visit_unary(&mut self, _arena: &[Expr], unary: &Unary) {
         match unary {
             Unary::Not(_) => error("invalid token"),
             Unary::Minus(_) => self.ops.push(RpnToken::Minus),
