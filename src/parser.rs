@@ -31,6 +31,7 @@ pub enum Terminal {
     True,
     False,
     Nil,
+    SemiColon,
 }
 #[derive(Clone, Debug)]
 pub struct Binary {
@@ -77,19 +78,26 @@ pub trait ASTVisitor {
     fn visit_literal(&mut self, literal: &Terminal);
     fn visit_unary(&mut self, arena: &[Expr], unary: &Unary);
 }
+
 #[derive(Debug)]
 pub enum ASTError {
     Eof,
     TokenError(LocatedToken),
+    BinaryNoLeft(LocatedToken),
 }
 
 impl Display for ASTError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ASTError::Eof => write!(f, "Error: {}", "Unexpected End Of File"),
+            ASTError::Eof => write!(f, "{}", "Unexpected End Of File"),
             ASTError::TokenError(located_token) => write!(
                 f,
-                "Error: Unexpected token \"{}\" at {}:{}",
+                "Unexpected token \"{}\" at {}:{}",
+                located_token.token, located_token.line, located_token.row
+            ),
+            ASTError::BinaryNoLeft(located_token) => write!(
+                f,
+                "Unexpected token \"{}\" at {}:{}, This Token should have a left and right side",
                 located_token.token, located_token.line, located_token.row
             ),
         }
@@ -101,6 +109,8 @@ pub struct ASTBuilder {
     ast: AST,
 }
 
+// Statement
+// binary error production
 // expression → equality ;
 // equality → comparison ( ( "!=" | "==" ) comparison )* ;
 // comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
@@ -121,11 +131,39 @@ impl ASTBuilder {
         self.ast.arena.len() - 1
     }
 
+    fn current(&self, offset: i64) -> LocatedToken {
+        self.tokens.tokens[(self.current_index as i64 + offset) as usize].clone()
+    }
     fn error_token(&self, token_offset: i64) -> ASTError {
         let token = self.tokens.tokens[(self.current_index as i64 + token_offset) as usize].clone();
         ASTError::TokenError(token)
     }
     fn expression(&mut self) -> Result<ExprID, ASTError> {
+        self.statement()
+    }
+    fn statement(&mut self) -> Result<ExprID, ASTError> {
+        if let Some(_) = self.my_match(&[SimpleToken::SemiColon]) {
+            Ok(self.emit_terminal(Terminal::SemiColon))
+        } else {
+            self.binary_error_production()
+        }
+    }
+    fn binary_error_production(&mut self) -> Result<ExprID, ASTError> {
+        use SimpleToken::*;
+        if let Some(_) = self.my_match(&[
+            Plus,
+            Equal,
+            BangEqual,
+            Less,
+            LessEqual,
+            Greater,
+            GreaterEqual,
+            Star,
+            Slash,
+            Equal,
+        ]) {
+            return Err(ASTError::BinaryNoLeft(self.current(-1)));
+        }
         self.equality()
     }
     fn equality(&mut self) -> Result<ExprID, ASTError> {
@@ -256,15 +294,15 @@ impl ASTBuilder {
     fn previous(&mut self) -> &Token {
         &self.tokens.tokens[self.current_index - 1].token
     }
-    fn previous_simple(&mut self) -> Result<SimpleToken, ASTError> {
-        let token = &self.tokens.tokens[self.current_index - 1].token;
-        match token {
-            Token::Single(simple_token) => Ok(*simple_token),
-            Token::StringLitteral(_) => Err(self.error_token(-1)),
-            Token::Identifier(_) => Err(self.error_token(-1)),
-            Token::Number(_) => Err(self.error_token(-1)),
-        }
-    }
+    // fn previous_simple(&mut self) -> Result<SimpleToken, ASTError> {
+    //     let token = &self.tokens.tokens[self.current_index - 1].token;
+    //     match token {
+    //         Token::Single(simple_token) => Ok(*simple_token),
+    //         Token::StringLitteral(_) => Err(self.error_token(-1)),
+    //         Token::Identifier(_) => Err(self.error_token(-1)),
+    //         Token::Number(_) => Err(self.error_token(-1)),
+    //     }
+    // }
 
     fn check(&self, token: &Token) -> bool {
         if self.current_index == self.tokens.tokens.len() {
@@ -295,7 +333,8 @@ impl ASTBuilder {
         None
     }
 
-    pub fn parse(input: TokenVec) -> Result<AST, ASTError> {
+    pub fn parse(input: TokenVec) -> (AST, Vec<ASTError>) {
+        let mut errors = vec![];
         let mut builder = Self {
             current_index: 0,
             tokens: input,
@@ -304,8 +343,13 @@ impl ASTBuilder {
         let mut recovery_mode = false;
         while builder.current_index.clone() < builder.tokens.tokens.len() {
             if recovery_mode {
-                let token = builder.advance()?;
-                if token == &Token::Single(SimpleToken::SemiColon) {
+                let token = builder.advance();
+                if token.is_err() {
+                    // Only possible error here is end of file
+                    errors.push(ASTError::Eof);
+                    return (builder.ast, errors);
+                }
+                if token.unwrap() == &Token::Single(SimpleToken::SemiColon) {
                     recovery_mode = false;
                 }
             } else {
@@ -313,13 +357,12 @@ impl ASTBuilder {
                 match expression {
                     Ok(expression) => builder.ast.roots.push(expression),
                     Err(err) => {
-                        eprintln!("{}", err);
+                        errors.push(err);
                         recovery_mode = true;
                     }
                 }
             }
         }
-
-        Ok(builder.ast)
+        (builder.ast, errors)
     }
 }

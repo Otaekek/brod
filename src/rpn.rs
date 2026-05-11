@@ -98,6 +98,7 @@ impl ASTVisitor for RpnCalculator {
             Terminal::True => error("Invalid Token"),
             Terminal::False => error("Invalid Token"),
             Terminal::Nil => error("Invalid Token"),
+            Terminal::SemiColon => error("Invalid Token"),
         }
     }
     fn visit_unary(&mut self, arena: &[Expr], unary: &Unary) {

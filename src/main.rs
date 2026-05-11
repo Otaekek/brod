@@ -9,6 +9,7 @@ use std::{
 };
 
 use clap::Parser;
+use colored::Colorize;
 
 use crate::parser::ASTBuilder;
 
@@ -16,11 +17,17 @@ use crate::parser::ASTBuilder;
 struct CliArgs {
     source_path: Option<PathBuf>,
 }
-// 1 + 3 * 4 / 5 * 6 + 7
+
 fn run(source: &str, source_name: String) -> bool {
     let tokens = lexer::lex(source.to_owned(), source_name);
     let ast = ASTBuilder::parse(tokens);
-    println!("{:#?}", ast);
+    for err in &ast.1 {
+        eprintln!("{} {}", "Error:".red(), err);
+    }
+    if ast.1.is_empty() {
+        println!("{}", "Ok".green());
+    }
+    println!("{:#?}", ast.0);
     // println!("{:#?}", rpn::RpnCalculator::solve(&ast));
     false
 }
