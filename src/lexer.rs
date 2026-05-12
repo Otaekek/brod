@@ -1,3 +1,4 @@
+use enum_display::EnumDisplay;
 use once_cell::sync::Lazy;
 use std::{collections::HashMap, fmt::Display};
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -61,7 +62,7 @@ impl Display for SimpleToken {
         write!(f, "{}", s)
     }
 }
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, EnumDisplay)]
 pub enum KeyWordType {
     Class,
     Else,
@@ -77,29 +78,9 @@ pub enum KeyWordType {
     Var,
     While,
     If,
+    Enum,
 }
 
-impl Display for KeyWordType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            KeyWordType::Class => "class",
-            KeyWordType::Else => "else",
-            KeyWordType::False => "false",
-            KeyWordType::Fun => "fun",
-            KeyWordType::For => "for",
-            KeyWordType::Nil => "nil",
-            KeyWordType::Print => "print",
-            KeyWordType::Return => "return",
-            KeyWordType::Super => "super",
-            KeyWordType::This => "this",
-            KeyWordType::True => "true",
-            KeyWordType::Var => "var",
-            KeyWordType::While => "while",
-            KeyWordType::If => "if",
-        };
-        write!(f, "{}", s)
-    }
-}
 static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
     let mut m = HashMap::new();
     m.insert("class", KeyWordType::Class);
@@ -116,6 +97,7 @@ static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
     m.insert("var", KeyWordType::Var);
     m.insert("while", KeyWordType::While);
     m.insert("if", KeyWordType::If);
+    m.insert("enum", KeyWordType::Enum);
     m
 });
 #[derive(Clone, Debug, PartialEq)]
