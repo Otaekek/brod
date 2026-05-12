@@ -189,9 +189,9 @@ impl ASTBuilder {
     fn ternary(&mut self) -> Result<ExprID, ASTError> {
         let left = self.equality()?;
 
-        if let Some(_) = self.my_match(&[SimpleToken::Colon]) {
+        if let Some(_) = self.my_match(&[SimpleToken::Question]) {
             let middle = self.expression()?;
-            self.consume(SimpleToken::Question)?;
+            self.consume(SimpleToken::Colon)?;
             let right = self.expression()?;
             return Ok(self.emit(Expr::Ternary(Ternary {
                 left,
