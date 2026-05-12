@@ -104,4 +104,8 @@ impl ASTVisitor for RpnCalculator {
             Unary::Minus(_) => self.ops.push(RpnToken::Minus),
         }
     }
+
+    fn visit_ternary(&mut self, _arena: &[Expr], _ternary: &crate::parser::Ternary) {
+        unreachable!();
+    }
 }

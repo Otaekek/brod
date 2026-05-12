@@ -10,7 +10,9 @@ pub enum SimpleToken {
     Dot,
     Minus,
     Plus,
+    Colon,
     SemiColon,
+    Question,
     Slash,
     // Comment,
     Star,
@@ -53,6 +55,8 @@ impl Display for SimpleToken {
             SimpleToken::And => "&",
             SimpleToken::Or => "|",
             // SimpleToken::Comment => unreachable!(),
+            SimpleToken::Colon => ":",
+            SimpleToken::Question => "?",
         };
         write!(f, "{}", s)
     }
@@ -255,10 +259,10 @@ impl Fsm {
         // Character to skip
         self.transitions(" \t\n", Default, (Default, Action::None));
         // Single Tokens
-        let single_token_chars = "(){},.-+*;&|";
+        let single_token_chars = "(){},.-+*;&|:?";
         let single_token_token = [
             LeftParen, RightParen, LeftBrace, RightBrace, Comma, Dot, Minus, Plus, Star, SemiColon,
-            And, Or,
+            And, Or, Colon, Question,
         ];
         assert!(single_token_token.len() == single_token_chars.len());
         for (character, token) in single_token_chars.chars().zip(single_token_token) {
@@ -314,7 +318,7 @@ impl Fsm {
             (BuildIdentOrKeyword, Action::None),
         );
         self.transitions(
-            "=&|(){},.-+*;/<>! \n",
+            "=&|(){},.-+*;/<>!:? \n",
             BuildIdentOrKeyword,
             (Default, Action::PushIdentifierOrKeyWord),
         );
@@ -329,12 +333,12 @@ impl Fsm {
         );
         self.transition('.', BuildNumber, (BuildNumberWithPoint, Action::None));
         self.transitions(
-            "=)}&|,-+*;/<>! \n",
+            "=(){}&|,-+*;/<>!:? \n",
             BuildNumber,
             (Default, Action::PushNumber),
         );
         self.transitions(
-            "=)}&|,-+*;/<>! \n",
+            "=(){}&|,-+*;/<>!:? \n",
             BuildNumberWithPoint,
             (Default, Action::PushNumber),
         );

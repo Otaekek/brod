@@ -39,12 +39,20 @@ pub struct Binary {
     pub operator: Operator,
     pub right: ExprID,
 }
+#[derive(Clone, Debug)]
+pub struct Ternary {
+    pub left: ExprID,
+    pub middle: ExprID,
+    pub right: ExprID,
+}
 
 #[derive(Clone, Debug)]
 pub enum Expr {
     Terminal(Terminal),
     Unary(Unary),
     Binary(Binary),
+    Ternary(Ternary),
+    Statement(ExprID),
 }
 
 #[derive(Clone, Debug)]
@@ -70,10 +78,18 @@ impl AST {
                 self.traverse_lrn(binary.right, visitor);
                 visitor.visit_binary(&self.arena, &binary);
             }
+            Expr::Statement(expr_id) => self.traverse_lrn(*expr_id, visitor),
+            Expr::Ternary(ternary) => {
+                self.traverse_lrn(ternary.left, visitor);
+                self.traverse_lrn(ternary.middle, visitor);
+                self.traverse_lrn(ternary.right, visitor);
+                visitor.visit_ternary(&self.arena, &ternary);
+            }
         };
     }
 }
 pub trait ASTVisitor {
+    fn visit_ternary(&mut self, arena: &[Expr], ternary: &Ternary);
     fn visit_binary(&mut self, arena: &[Expr], binary: &Binary);
     fn visit_literal(&mut self, literal: &Terminal);
     fn visit_unary(&mut self, arena: &[Expr], unary: &Unary);
@@ -109,18 +125,20 @@ pub struct ASTBuilder {
     ast: AST,
 }
 
-// Statement
-// binary error production
-// expression → equality ;
-// equality → comparison ( ( "!=" | "==" ) comparison )* ;
-// comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-// term → factor ( ( "-" | "+" ) factor )* ;
-// factor → unary ( ( "/" | "*" ) unary )* ;
-// unary → ( "!" | "-" ) unary
-// | primary ;
-// primary → NUMBER | STRING | "true" | "false" | "nil"
-// | "(" expression ")"
-//
+/// Statement → expression ;
+/// expression → ternary
+/// ternary → equality ? expression : expression
+/// equality → comparison ( ( "!=" | "==" ) comparison )*
+/// comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )*
+/// term → factor ( ( "-" | "+" ) factor )*
+/// factor → unary ( ( "/" | "*" ) unary )*
+/// unary → ( "!" | "-" ) unary
+/// | primary
+/// primary → NUMBER | STRING | "true" | "false" | "nil"
+/// | "(" expression ")"
+///
+/// Error Productions :
+/// binary error production
 impl ASTBuilder {
     fn emit(&mut self, expr: Expr) -> ExprID {
         self.ast.arena.push(expr);
@@ -138,15 +156,16 @@ impl ASTBuilder {
         let token = self.tokens.tokens[(self.current_index as i64 + token_offset) as usize].clone();
         ASTError::TokenError(token)
     }
-    fn expression(&mut self) -> Result<ExprID, ASTError> {
-        self.statement()
-    }
     fn statement(&mut self) -> Result<ExprID, ASTError> {
+        let expression = self.expression()?;
         if let Some(_) = self.my_match(&[SimpleToken::SemiColon]) {
-            Ok(self.emit_terminal(Terminal::SemiColon))
-        } else {
-            self.binary_error_production()
+            return Ok(self.emit(Expr::Statement(expression)));
         }
+
+        Ok(expression)
+    }
+    fn expression(&mut self) -> Result<ExprID, ASTError> {
+        self.binary_error_production()
     }
     fn binary_error_production(&mut self) -> Result<ExprID, ASTError> {
         use SimpleToken::*;
@@ -164,7 +183,23 @@ impl ASTBuilder {
         ]) {
             return Err(ASTError::BinaryNoLeft(self.current(-1)));
         }
-        self.equality()
+        self.ternary()
+    }
+
+    fn ternary(&mut self) -> Result<ExprID, ASTError> {
+        let left = self.equality()?;
+
+        if let Some(_) = self.my_match(&[SimpleToken::Colon]) {
+            let middle = self.expression()?;
+            self.consume(SimpleToken::Question)?;
+            let right = self.expression()?;
+            return Ok(self.emit(Expr::Ternary(Ternary {
+                left,
+                middle,
+                right,
+            })));
+        }
+        Ok(left)
     }
     fn equality(&mut self) -> Result<ExprID, ASTError> {
         let mut left = self.comparison()?;
@@ -353,7 +388,7 @@ impl ASTBuilder {
                     recovery_mode = false;
                 }
             } else {
-                let expression = builder.expression();
+                let expression = builder.statement();
                 match expression {
                     Ok(expression) => builder.ast.roots.push(expression),
                     Err(err) => {
