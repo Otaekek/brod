@@ -28,10 +28,8 @@ pub enum Unary {
 pub enum Terminal {
     Number(f64),
     String(String),
-    True,
-    False,
+    Boolean(bool),
     Nil,
-    SemiColon,
 }
 #[derive(Clone, Debug)]
 pub struct Binary {
@@ -71,7 +69,7 @@ impl AST {
 
     pub fn traverse_lrn<T: ASTVisitor>(&self, input: ExprID, visitor: &mut T) {
         match &self.arena[input] {
-            Expr::Terminal(literal) => visitor.visit_literal(&literal),
+            Expr::Terminal(literal) => visitor.visit_terminal(&literal),
             Expr::Unary(unary) => visitor.visit_unary(&self.arena, &unary),
             Expr::Binary(binary) => {
                 self.traverse_lrn(binary.left, visitor);
@@ -91,7 +89,7 @@ impl AST {
 pub trait ASTVisitor {
     fn visit_ternary(&mut self, arena: &[Expr], ternary: &Ternary);
     fn visit_binary(&mut self, arena: &[Expr], binary: &Binary);
-    fn visit_literal(&mut self, literal: &Terminal);
+    fn visit_terminal(&mut self, literal: &Terminal);
     fn visit_unary(&mut self, arena: &[Expr], unary: &Unary);
 }
 
@@ -123,6 +121,7 @@ pub struct ASTBuilder {
     current_index: usize,
     tokens: TokenVec,
     ast: AST,
+    source_name: String,
 }
 
 /// Statement → expression ;
@@ -303,8 +302,8 @@ impl ASTBuilder {
         match self.advance()?.clone() {
             Token::Single(token) => match token {
                 lexer::SimpleToken::KeyWord(key_word_type) => match key_word_type {
-                    lexer::KeyWordType::False => Ok(self.emit_terminal(Terminal::False)),
-                    lexer::KeyWordType::True => Ok(self.emit_terminal(Terminal::True)),
+                    lexer::KeyWordType::False => Ok(self.emit_terminal(Terminal::Boolean(false))),
+                    lexer::KeyWordType::True => Ok(self.emit_terminal(Terminal::Boolean(true))),
                     lexer::KeyWordType::Nil => Ok(self.emit_terminal(Terminal::Nil)),
                     _ => Err(self.error_token(-1)),
                 },
@@ -370,12 +369,13 @@ impl ASTBuilder {
         None
     }
 
-    pub fn parse(input: TokenVec) -> (AST, Vec<ASTError>) {
+    pub fn parse(source_name: String, input: TokenVec) -> (AST, Vec<ASTError>) {
         let mut errors = vec![];
         let mut builder = Self {
             current_index: 0,
             tokens: input,
             ast: AST::new(),
+            source_name: source_name,
         };
         let mut recovery_mode = false;
         while builder.current_index.clone() < builder.tokens.tokens.len() {

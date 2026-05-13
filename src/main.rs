@@ -1,6 +1,6 @@
+mod interpreter;
 mod lexer;
 mod parser;
-pub mod rpn;
 use std::{
     fs::read,
     io::{stdin, stdout, Write},
@@ -21,16 +21,16 @@ struct CliArgs {
 use reedline::{DefaultPrompt, Reedline, Signal};
 
 fn run(source: &str, source_name: String) -> bool {
-    let tokens = lexer::lex(source.to_owned(), source_name);
-    let ast = ASTBuilder::parse(tokens);
+    let tokens = lexer::lex(source.to_owned(), source_name.clone());
+    let ast = ASTBuilder::parse(source_name.clone(), tokens);
     for err in &ast.1 {
         eprintln!("{} {}", "Error:".red(), err);
     }
     if ast.1.is_empty() {
         println!("{}", "Ok".green());
     }
-    println!("{:#?}", ast.0);
-    // println!("{:#?}", rpn::RpnCalculator::solve(&ast));
+    interpreter::eval(ast.0);
+    // println!("{:#?}", ast.0);
     false
 }
 

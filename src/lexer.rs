@@ -376,6 +376,9 @@ impl Lexer {
     }
 
     fn go_back(&mut self) {
+        if self.current() == '\n' {
+            self.line -= 1;
+        }
         self.current -= 1;
         self.row -= 1;
     }
