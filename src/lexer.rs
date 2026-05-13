@@ -413,6 +413,7 @@ impl Lexer {
     }
 
     pub fn lex(&mut self) {
+        self.source.push(' ');
         while !self.is_at_end() {
             let c = self.current();
             if c == '\n' {

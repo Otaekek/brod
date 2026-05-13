@@ -244,6 +244,7 @@ impl ASTBuilder {
         }
         Ok(left)
     }
+
     fn term(&mut self) -> Result<ExprID, ASTError> {
         let mut left = self.factor()?;
         while let Some(simple_token) = self.my_match(&[SimpleToken::Plus, SimpleToken::Minus]) {
@@ -261,6 +262,7 @@ impl ASTBuilder {
         }
         Ok(left)
     }
+
     fn factor(&mut self) -> Result<ExprID, ASTError> {
         let mut left = self.unary()?;
         while let Some(simple_token) = self.my_match(&[SimpleToken::Star, SimpleToken::Slash]) {

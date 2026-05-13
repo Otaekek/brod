@@ -47,7 +47,7 @@ fn run_repl() {
                 break;
             }
             Ok(Signal::Success(x)) => {
-                run(&(x + " "), "prompt".to_string());
+                run(&(x), "prompt".to_string());
             }
             _ => break,
         }
