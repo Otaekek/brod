@@ -18,6 +18,8 @@ struct CliArgs {
     source_path: Option<PathBuf>,
 }
 
+use reedline::{DefaultPrompt, Reedline, Signal};
+
 fn run(source: &str, source_name: String) -> bool {
     let tokens = lexer::lex(source.to_owned(), source_name);
     let ast = ASTBuilder::parse(tokens);
@@ -32,14 +34,23 @@ fn run(source: &str, source_name: String) -> bool {
     false
 }
 
-fn prompt() {
-    let mut input_buf = String::with_capacity(1024);
+fn run_repl() {
+    let mut line_editor = Reedline::create();
+    let prompt = DefaultPrompt::new(
+        reedline::DefaultPromptSegment::Basic("Brod".to_string()),
+        reedline::DefaultPromptSegment::CurrentDateTime,
+    );
     loop {
-        print!("brod> ");
-        stdout().flush().unwrap();
-        stdin().read_line(&mut input_buf).unwrap();
-        run(&input_buf, "prompt".to_string());
-        input_buf.clear();
+        let sig = line_editor.read_line(&prompt);
+        match sig {
+            Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => {
+                break;
+            }
+            Ok(Signal::Success(x)) => {
+                run(&(x + " "), "prompt".to_string());
+            }
+            _ => break,
+        }
     }
 }
 
@@ -59,7 +70,7 @@ fn main() {
         run_file(source);
     } else {
         println!("Running prompt ...");
-        prompt();
+        run_repl();
     }
     // Lexer::new("Source".to_string()).lex();
 }

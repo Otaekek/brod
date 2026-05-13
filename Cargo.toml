@@ -8,3 +8,4 @@ clap = { version = "4.6.1", features = ["derive"] }
 colored = "3.1.1"
 enum-display = "0.2.1"
 once_cell = "1"
+reedline = "0.47.0"
