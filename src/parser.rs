@@ -61,15 +61,20 @@ pub enum Expr {
     Unary(Unary),
     Binary(Binary),
     Ternary(Ternary),
-    Statement(ExprID),
+}
+
+#[derive(Clone, Debug)]
+pub enum Statement {
+    ExprStatement(ExprID),
     PrintStatement(Vec<ExprID>),
-    Assignment(ExprID, ExprID),
+    Assignment(String, ExprID),
+    Empty,
 }
 
 #[derive(Clone, Debug)]
 pub struct AST {
     pub arena: Vec<Expr>,
-    pub roots: Vec<ExprID>,
+    pub roots: Vec<Statement>,
 }
 
 impl AST {
@@ -159,13 +164,12 @@ pub struct ASTBuilder {
     current_index: usize,
     tokens: TokenVec,
     ast: AST,
-    source_name: String,
 }
 
-/// Statement → (expression ; | \n) | print
-/// print → print (expression*) ; | \n
-/// expression → ternary
+/// Statement → expression | print | assignment ;
+/// print → print (expression*)
 /// assignment → var IDENT = expression
+/// expression → ternary
 /// ternary → equality ? expression : expression
 /// equality → comparison ( ( "!=" | "==" ) comparison )*
 /// comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )*
@@ -191,38 +195,68 @@ impl ASTBuilder {
     fn current(&self, offset: i64) -> LocatedToken {
         self.tokens.tokens[(self.current_index as i64 + offset) as usize].clone()
     }
+    fn is_last(&self) -> bool {
+        self.current_index == self.tokens.tokens.len()
+    }
+    fn peek_next(&self) -> Option<Token> {
+        if self.is_last() {
+            None
+        } else {
+            Some(
+                self.tokens.tokens[(self.current_index as i64 + 1) as usize]
+                    .token
+                    .clone(),
+            )
+        }
+    }
     fn error_token(&self, token_offset: i64) -> ASTError {
         let token = self.tokens.tokens[(self.current_index as i64 + token_offset) as usize].clone();
         ASTError::TokenError(token)
     }
-    fn statement(&mut self) -> Result<ExprID, ASTError> {
-        while let Some(_) = self.my_match(&[SimpleToken::SemiColon, SimpleToken::Newline]) {}
-        let expression = self.print()?;
-        if let Some(c) = self.my_match(&[SimpleToken::SemiColon, SimpleToken::Newline]) {
-            while let Some(_) = self.my_match(&[SimpleToken::SemiColon, SimpleToken::Newline]) {}
-
-            return Ok(self.emit(Expr::Statement(expression)));
+    fn statement(&mut self) -> Result<Statement, ASTError> {
+        while let Some(_) = self.my_match(&[SimpleToken::SemiColon]) {}
+        if self.is_last() {
+            return Ok(Statement::Empty);
         }
-        return Err(self.error_token(0));
-        // self.consume(SimpleToken::SemiColon)?;
-        // Ok(expression)
+        let s = if self.check(&Token::Single(SimpleToken::KeyWord(
+            lexer::KeyWordType::Print,
+        ))) {
+            self.print()
+        } else if self.current(0).token
+            == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Var))
+        {
+            self.assignment()
+        } else {
+            let expression = self.expression()?;
+            Ok(Statement::ExprStatement(expression))
+        };
+
+        self.consume(SimpleToken::SemiColon)?;
+        s
     }
 
-    fn print(&mut self) -> Result<ExprID, ASTError> {
-        if let Some(_) = self.my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Print)]) {
-            let mut to_print = vec![];
-            self.consume(SimpleToken::LeftParen)?;
-            loop {
-                to_print.push(self.expression()?);
-                if !self.my_match(&[SimpleToken::Comma]).is_some() {
-                    break;
-                }
-            }
-            self.consume(SimpleToken::RightParen)?;
-            Ok(self.emit(Expr::PrintStatement(to_print)))
-        } else {
-            self.expression()
+    fn assignment(&mut self) -> Result<Statement, ASTError> {
+        self.consume(SimpleToken::KeyWord(lexer::KeyWordType::Var))?;
+        let ident = self.advance()?.clone();
+        self.consume(SimpleToken::Equal)?;
+        let right = self.expression()?;
+        match ident {
+            Token::Identifier(s) => return Ok(Statement::Assignment(s, right)),
+            _ => Err(self.error_token(-3)),
         }
+    }
+    fn print(&mut self) -> Result<Statement, ASTError> {
+        self.consume(SimpleToken::KeyWord(lexer::KeyWordType::Print))?;
+        let mut to_print = vec![];
+        self.consume(SimpleToken::LeftParen)?;
+        loop {
+            to_print.push(self.expression()?);
+            if !self.my_match(&[SimpleToken::Comma]).is_some() {
+                break;
+            }
+        }
+        self.consume(SimpleToken::RightParen)?;
+        Ok(Statement::PrintStatement(to_print))
     }
     fn expression(&mut self) -> Result<ExprID, ASTError> {
         self.binary_error_production()
@@ -392,15 +426,6 @@ impl ASTBuilder {
     fn previous(&mut self) -> &Token {
         &self.tokens.tokens[self.current_index - 1].token
     }
-    // fn previous_simple(&mut self) -> Result<SimpleToken, ASTError> {
-    //     let token = &self.tokens.tokens[self.current_index - 1].token;
-    //     match token {
-    //         Token::Single(simple_token) => Ok(*simple_token),
-    //         Token::StringLitteral(_) => Err(self.error_token(-1)),
-    //         Token::Identifier(_) => Err(self.error_token(-1)),
-    //         Token::Number(_) => Err(self.error_token(-1)),
-    //     }
-    // }
 
     fn check(&self, token: &Token) -> bool {
         if self.current_index == self.tokens.tokens.len() {
@@ -434,13 +459,12 @@ impl ASTBuilder {
         None
     }
 
-    pub fn parse(source_name: String, input: TokenVec) -> (AST, Vec<ASTError>) {
+    pub fn parse(input: TokenVec) -> (AST, Vec<ASTError>) {
         let mut errors = vec![];
         let mut builder = Self {
             current_index: 0,
             tokens: input,
             ast: AST::new(),
-            source_name: source_name,
         };
         let mut recovery_mode = false;
         while builder.current_index.clone() < builder.tokens.tokens.len() {
@@ -455,9 +479,9 @@ impl ASTBuilder {
                     recovery_mode = false;
                 }
             } else {
-                let expression = builder.statement();
-                match expression {
-                    Ok(expression) => builder.ast.roots.push(expression),
+                let statement = builder.statement();
+                match statement {
+                    Ok(statement) => builder.ast.roots.push(statement),
                     Err(err) => {
                         errors.push(err);
                         recovery_mode = true;

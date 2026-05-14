@@ -240,12 +240,12 @@ impl Fsm {
         let default = Default;
 
         // Character to skip
-        self.transitions(" \t", Default, (Default, Action::None));
+        self.transitions(" \t\n", Default, (Default, Action::None));
         // Single Tokens
-        let single_token_chars = "(){},.-+*;&|:?\n";
+        let single_token_chars = "(){},.-+*;&|:?";
         let single_token_token = [
             LeftParen, RightParen, LeftBrace, RightBrace, Comma, Dot, Minus, Plus, Star, SemiColon,
-            And, Or, Colon, Question, Newline,
+            And, Or, Colon, Question,
         ];
         assert!(single_token_token.len() == single_token_chars.len());
         for (character, token) in single_token_chars.chars().zip(single_token_token) {

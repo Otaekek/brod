@@ -22,7 +22,7 @@ use reedline::{DefaultPrompt, Reedline, Signal};
 
 fn run(source: &str, source_name: String) -> bool {
     let tokens = lexer::lex(source.to_owned(), source_name.clone());
-    let ast = ASTBuilder::parse(source_name.clone(), tokens);
+    let ast = ASTBuilder::parse(tokens);
     for err in &ast.1 {
         eprintln!(
             "{} {}",
@@ -58,7 +58,7 @@ fn run_repl() {
                 break;
             }
             Ok(Signal::Success(x)) => {
-                run(&(x + "\n"), "prompt".to_string());
+                run(&(x + ";"), "prompt".to_string());
             }
             _ => break,
         }

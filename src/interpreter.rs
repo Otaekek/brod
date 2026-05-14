@@ -1,6 +1,10 @@
-use crate::parser::{ASTVisitor, ExprID, Operator, Terminal, Unary, AST};
+use std::collections::HashMap;
 
-pub struct Interpreter {}
+use crate::parser::{ASTVisitor, ExprID, Operator, Statement, Terminal, Unary, AST};
+
+pub struct Interpreter {
+    variables: HashMap<String, Terminal>,
+}
 
 #[derive(Debug)]
 pub enum InterpretorError {
@@ -58,7 +62,9 @@ impl<'a> std::fmt::Display for ErrorDisplay<'a> {
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            variables: HashMap::new(),
+        }
     }
 
     pub fn eval_unary(&mut self, ast: &AST, unary: Unary) -> Result<Terminal, InterpretorError> {
@@ -150,6 +156,28 @@ impl Interpreter {
             )),
         }
     }
+    pub fn eval_statement(
+        &mut self,
+        ast: &AST,
+        input: Statement,
+    ) -> Result<Terminal, InterpretorError> {
+        match input {
+            Statement::ExprStatement(expr_id) => self.eval(ast, expr_id),
+            Statement::PrintStatement(items) => {
+                for x in items {
+                    let r = self.eval(ast, x)?;
+                    println!("{r}");
+                }
+                Ok(Terminal::Nil)
+            }
+            Statement::Assignment(ident, expr_id) => {
+                let value = self.eval(ast, expr_id)?;
+                self.variables.get(&ident).get_or_insert(&value);
+                Ok(value)
+            }
+            Statement::Empty => Ok(Terminal::Nil),
+        }
+    }
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<Terminal, InterpretorError> {
         match &ast.arena[root] {
             crate::parser::Expr::Terminal(terminal) => {
@@ -174,15 +202,7 @@ impl Interpreter {
                     },
                     _ => Err(InterpretorError::FobbiddenTernay),
                 }
-            }
-            crate::parser::Expr::Statement(expr_id) => self.eval(ast, *expr_id),
-            crate::parser::Expr::PrintStatement(items) => {
-                for x in items {
-                    let r = self.eval(ast, *x)?;
-                    println!("{r}");
-                }
-                Ok(Terminal::Nil)
-            }
+            } // crate::parser::Expr::Statement(expr_id) => self.eval(ast, *expr_id),
         }
     }
 }
@@ -191,7 +211,7 @@ pub fn eval(ast: AST) -> Result<Terminal, InterpretorError> {
     let mut interpreter = Interpreter::new();
     let mut last = Terminal::Nil;
     for root in &ast.roots {
-        let ret = interpreter.eval(&ast, *root)?;
+        let ret = interpreter.eval_statement(&ast, root.clone())?;
         last = ret;
     }
     Ok(last)
