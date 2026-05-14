@@ -62,6 +62,8 @@ pub enum Expr {
     Binary(Binary),
     Ternary(Ternary),
     Statement(ExprID),
+    PrintStatement(Vec<ExprID>),
+    Assignment(ExprID, ExprID),
 }
 
 #[derive(Clone, Debug)]
@@ -78,24 +80,24 @@ impl AST {
         }
     }
 
-    pub fn traverse_lrn<T: ASTVisitor>(&self, input: ExprID, visitor: &mut T) {
-        match &self.arena[input] {
-            Expr::Terminal(literal) => visitor.visit_terminal(&literal),
-            Expr::Unary(unary) => visitor.visit_unary(&self.arena, &unary),
-            Expr::Binary(binary) => {
-                self.traverse_lrn(binary.left, visitor);
-                self.traverse_lrn(binary.right, visitor);
-                visitor.visit_binary(&self.arena, &binary);
-            }
-            Expr::Statement(expr_id) => self.traverse_lrn(*expr_id, visitor),
-            Expr::Ternary(ternary) => {
-                self.traverse_lrn(ternary.left, visitor);
-                self.traverse_lrn(ternary.middle, visitor);
-                self.traverse_lrn(ternary.right, visitor);
-                visitor.visit_ternary(&self.arena, &ternary);
-            }
-        };
-    }
+    // pub fn traverse_lrn<T: ASTVisitor>(&self, input: ExprID, visitor: &mut T) {
+    //     match &self.arena[input] {
+    //         Expr::Terminal(literal) => visitor.visit_terminal(&literal),
+    //         Expr::Unary(unary) => visitor.visit_unary(&self.arena, &unary),
+    //         Expr::Binary(binary) => {
+    //             self.traverse_lrn(binary.left, visitor);
+    //             self.traverse_lrn(binary.right, visitor);
+    //             visitor.visit_binary(&self.arena, &binary);
+    //         }
+    //         Expr::Statement(expr_id) => self.traverse_lrn(*expr_id, visitor),
+    //         Expr::Ternary(ternary) => {
+    //             self.traverse_lrn(ternary.left, visitor);
+    //             self.traverse_lrn(ternary.middle, visitor);
+    //             self.traverse_lrn(ternary.right, visitor);
+    //             visitor.visit_ternary(&self.arena, &ternary);
+    //         }
+    //     };
+    // }
 }
 pub trait ASTVisitor {
     fn visit_ternary(&mut self, arena: &[Expr], ternary: &Ternary);
@@ -160,8 +162,10 @@ pub struct ASTBuilder {
     source_name: String,
 }
 
-/// Statement → expression ; | \n
+/// Statement → (expression ; | \n) | print
+/// print → print (expression*) ; | \n
 /// expression → ternary
+/// assignment → var IDENT = expression
 /// ternary → equality ? expression : expression
 /// equality → comparison ( ( "!=" | "==" ) comparison )*
 /// comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )*
@@ -193,7 +197,7 @@ impl ASTBuilder {
     }
     fn statement(&mut self) -> Result<ExprID, ASTError> {
         while let Some(_) = self.my_match(&[SimpleToken::SemiColon, SimpleToken::Newline]) {}
-        let expression = self.expression()?;
+        let expression = self.print()?;
         if let Some(c) = self.my_match(&[SimpleToken::SemiColon, SimpleToken::Newline]) {
             while let Some(_) = self.my_match(&[SimpleToken::SemiColon, SimpleToken::Newline]) {}
 
@@ -203,9 +207,27 @@ impl ASTBuilder {
         // self.consume(SimpleToken::SemiColon)?;
         // Ok(expression)
     }
+
+    fn print(&mut self) -> Result<ExprID, ASTError> {
+        if let Some(_) = self.my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Print)]) {
+            let mut to_print = vec![];
+            self.consume(SimpleToken::LeftParen)?;
+            loop {
+                to_print.push(self.expression()?);
+                if !self.my_match(&[SimpleToken::Comma]).is_some() {
+                    break;
+                }
+            }
+            self.consume(SimpleToken::RightParen)?;
+            Ok(self.emit(Expr::PrintStatement(to_print)))
+        } else {
+            self.expression()
+        }
+    }
     fn expression(&mut self) -> Result<ExprID, ASTError> {
         self.binary_error_production()
     }
+
     fn binary_error_production(&mut self) -> Result<ExprID, ASTError> {
         use SimpleToken::*;
         if let Some(_) = self.my_match(&[

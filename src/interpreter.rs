@@ -176,6 +176,13 @@ impl Interpreter {
                 }
             }
             crate::parser::Expr::Statement(expr_id) => self.eval(ast, *expr_id),
+            crate::parser::Expr::PrintStatement(items) => {
+                for x in items {
+                    let r = self.eval(ast, *x)?;
+                    println!("{r}");
+                }
+                Ok(Terminal::Nil)
+            }
         }
     }
 }
