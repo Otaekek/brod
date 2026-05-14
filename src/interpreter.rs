@@ -17,26 +17,22 @@ pub enum InterpretorError {
 impl InterpretorError {
     fn format_error(&self, source: &str, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InterpretorError::DivideByZero => write!(f, "{}", "Runtime Error: Division by zero"),
+            InterpretorError::DivideByZero => write!(f, "{}", "Division by zero"),
             InterpretorError::ForbiddenUnaryOperation(unary, terminal) => {
-                write!(
-                    f,
-                    "Runtime Error: Forbiden operator: {} on type {}",
-                    unary, terminal
-                )
+                write!(f, "Forbiden operator: {} on type {}", unary, terminal)
             }
             InterpretorError::ForbiddenBinaryOperation(operator, terminal, terminal1) => write!(
                 f,
-                "Runtime Error: Forbiden operator: {} on type {} and {}",
+                "Forbiden operator: {} on type {} and {}",
                 operator, terminal, terminal1
             ),
             InterpretorError::FobbiddenTernay => write!(
                 f,
                 "{}",
-                "Runtime Error: left hand side of a ternary should be a boolean or a number"
+                "left hand side of a ternary should be a boolean or a number"
             ),
             InterpretorError::UnDeclaredIdentifier(v) => {
-                write!(f, "Runtime Error: Undeclared Variable {}", v)
+                write!(f, "Undeclared Variable {}", v)
             }
         }
     }
@@ -48,9 +44,6 @@ impl InterpretorError {
                 source
             }
         )
-    }
-    pub fn display_error(&self, source: &str) {
-        eprintln!("{}", self.get_formated_error(source));
     }
 }
 struct ErrorDisplay<'a> {
@@ -148,7 +141,7 @@ impl Interpreter {
             }
             (Primary::Number(n), Primary::String(s)) => {
                 if operator == Plus {
-                    Ok(Primary::String(s.clone() + n.to_string().as_str()))
+                    Ok(Primary::String(n.to_string() + s.as_str()))
                 } else {
                     Err(InterpretorError::ForbiddenBinaryOperation(
                         operator, left, right,
@@ -186,7 +179,6 @@ impl Interpreter {
             Statement::Assignment(ident, expr_id) => {
                 let value = self.eval(ast, expr_id)?;
                 self.variables.insert(ident, value.clone());
-                println!("{:#?}", self.variables);
                 Ok(value)
             }
             Statement::Empty => Ok(Primary::Nil),
@@ -221,8 +213,7 @@ impl Interpreter {
     }
 }
 
-pub fn eval(ast: AST) -> Result<Primary, InterpretorError> {
-    let mut interpreter = Interpreter::new();
+pub fn eval(ast: AST, interpreter: &mut Interpreter) -> Result<Primary, InterpretorError> {
     let mut last = Primary::Nil;
     for root in &ast.roots {
         let ret = interpreter.eval_statement(&ast, root.clone())?;

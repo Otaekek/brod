@@ -357,11 +357,11 @@ impl Lexer {
         }
     }
 
-    fn error(&self, message: impl Display) {
-        eprintln!(
+    fn error(&self, message: impl Display) -> String {
+        format!(
             "Lexer: {message} at {}:{}:{}",
             self.source_name, self.line, self.row
-        );
+        )
     }
 
     fn is_at_end(&self) -> bool {
@@ -415,8 +415,7 @@ impl Lexer {
         }
         self.go_back();
     }
-
-    pub fn lex(&mut self) {
+    pub fn lex(&mut self) -> Result<(), String> {
         self.source.push(' ');
         while !self.is_at_end() {
             let c = self.current();
@@ -433,8 +432,7 @@ impl Lexer {
                 Action::PushEscapedInString => self.push_string(),
                 Action::PushIdentifierOrKeyWord => self.push_identifier_or_keyword(),
                 Action::Error => {
-                    self.error(format!("Error: Unexpected character \"{c}\""));
-                    return;
+                    return Err(self.error(format!("Unexpected character \"{c}\"")));
                 } // Action::Last => {
                 //     if new_state != State::Default {
                 //         self.error("Unexpected EOF, please finish with ;");
@@ -459,11 +457,12 @@ impl Lexer {
             self.row += 1;
             self.advance();
         }
+        Ok(())
     }
 }
 
-pub fn lex(source: String, source_name: String) -> TokenVec {
+pub fn lex(source: String, source_name: String) -> Result<TokenVec, String> {
     let mut lexer = Lexer::new(source, source_name);
-    lexer.lex();
-    lexer.tokens
+    lexer.lex()?;
+    Ok(lexer.tokens)
 }
