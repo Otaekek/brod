@@ -31,6 +31,17 @@ pub enum Terminal {
     Boolean(bool),
     Nil,
 }
+
+impl Display for Terminal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Terminal::Number(v) => write!(f, "Number: {}", v),
+            Terminal::String(v) => write!(f, "String: {}", v),
+            Terminal::Boolean(v) => write!(f, "Bool: {}", v),
+            Terminal::Nil => write!(f, "{}", "Nil"),
+        }
+    }
+}
 #[derive(Clone, Debug)]
 pub struct Binary {
     pub left: ExprID,
@@ -124,7 +135,7 @@ pub struct ASTBuilder {
     source_name: String,
 }
 
-/// Statement → expression ;
+/// Statement → expression ; | \n
 /// expression → ternary
 /// ternary → equality ? expression : expression
 /// equality → comparison ( ( "!=" | "==" ) comparison )*
@@ -156,12 +167,16 @@ impl ASTBuilder {
         ASTError::TokenError(token)
     }
     fn statement(&mut self) -> Result<ExprID, ASTError> {
+        while let Some(_) = self.my_match(&[SimpleToken::SemiColon, SimpleToken::Newline]) {}
         let expression = self.expression()?;
-        if let Some(_) = self.my_match(&[SimpleToken::SemiColon]) {
+        if let Some(c) = self.my_match(&[SimpleToken::SemiColon, SimpleToken::Newline]) {
+            while let Some(_) = self.my_match(&[SimpleToken::SemiColon, SimpleToken::Newline]) {}
+
             return Ok(self.emit(Expr::Statement(expression)));
         }
-
-        Ok(expression)
+        return Err(self.error_token(0));
+        // self.consume(SimpleToken::SemiColon)?;
+        // Ok(expression)
     }
     fn expression(&mut self) -> Result<ExprID, ASTError> {
         self.binary_error_production()
@@ -351,6 +366,9 @@ impl ASTBuilder {
         if self.check(&Token::Single(token)) {
             self.advance()
         } else {
+            if self.current_index == self.tokens.tokens.len() {
+                return Err(ASTError::Eof);
+            }
             Err(self.error_token(0))
         }
     }

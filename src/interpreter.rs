@@ -47,7 +47,7 @@ impl ASTVisitor for Interpreter {
         match (left, right) {
             (Terminal::Number(left_n), Terminal::Number(right_n)) => match binary.operator {
                 Equal => self.stack.push(Terminal::Boolean(left_n == right_n)),
-                NotEqual => self.stack.push(Terminal::Boolean(left_n == right_n)),
+                NotEqual => self.stack.push(Terminal::Boolean(left_n != right_n)),
                 Lesser => self.stack.push(Terminal::Boolean(left_n < right_n)),
                 LesserEqual => self.stack.push(Terminal::Boolean(left_n <= right_n)),
                 Greater => self.stack.push(Terminal::Boolean(left_n > right_n)),
@@ -66,7 +66,7 @@ impl ASTVisitor for Interpreter {
             (Terminal::Boolean(left_bool), Terminal::Boolean(right_bool)) => {
                 match binary.operator {
                     Equal => self.stack.push(Terminal::Boolean(left_bool == right_bool)),
-                    NotEqual => self.stack.push(Terminal::Boolean(left_bool == right_bool)),
+                    NotEqual => self.stack.push(Terminal::Boolean(left_bool != right_bool)),
                     Lesser => self.stack.push(Terminal::Boolean(left_bool < right_bool)),
                     LesserEqual => self.stack.push(Terminal::Boolean(left_bool <= right_bool)),
                     Greater => self.stack.push(Terminal::Boolean(left_bool > right_bool)),
@@ -121,6 +121,9 @@ pub fn eval(ast: AST) {
     let mut interpreter = Interpreter::new();
     for root in &ast.roots {
         ast.traverse_lrn(*root, &mut interpreter);
-        println!("{:#?}", interpreter.ret());
+        if interpreter.ret().is_some() {
+            println!("{}", interpreter.ret().unwrap());
+        }
+        interpreter.stack.clear();
     }
 }

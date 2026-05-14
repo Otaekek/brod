@@ -3,7 +3,7 @@ mod lexer;
 mod parser;
 use std::{
     fs::read,
-    io::{stdin, stdout, Write},
+    io::{stdin, stdout},
     path::PathBuf,
     process::exit,
 };
@@ -47,7 +47,7 @@ fn run_repl() {
                 break;
             }
             Ok(Signal::Success(x)) => {
-                run(&(x), "prompt".to_string());
+                run(&(x + "\n"), "prompt".to_string());
             }
             _ => break,
         }
