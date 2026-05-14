@@ -24,12 +24,23 @@ fn run(source: &str, source_name: String) -> bool {
     let tokens = lexer::lex(source.to_owned(), source_name.clone());
     let ast = ASTBuilder::parse(source_name.clone(), tokens);
     for err in &ast.1 {
-        eprintln!("{} {}", "Error:".red(), err);
+        eprintln!(
+            "{} {}",
+            "Parsing Error:".red(),
+            err.get_formated_error(&source_name)
+        );
     }
     if ast.1.is_empty() {
-        println!("{}", "Ok".green());
+        let result = interpreter::eval(ast.0);
+        match result {
+            Ok(v) => println!("{}: {}", "Ok".green(), v),
+            Err(err) => eprintln!(
+                "{} {}",
+                "Error:".red(),
+                err.get_formated_error(&source_name)
+            ),
+        }
     }
-    interpreter::eval(ast.0);
     // println!("{:#?}", ast.0);
     false
 }

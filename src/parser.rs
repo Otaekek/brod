@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::lexer::{LocatedToken, SimpleToken, Token, TokenVec};
 
 use super::lexer;
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, enum_display::EnumDisplay)]
 pub enum Operator {
     Equal,
     NotEqual,
@@ -18,7 +18,7 @@ pub enum Operator {
     Star,
 }
 pub type ExprID = usize;
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug, enum_display::EnumDisplay)]
 pub enum Unary {
     Not(ExprID),
     Minus(ExprID),
@@ -111,23 +111,48 @@ pub enum ASTError {
     BinaryNoLeft(LocatedToken),
 }
 
-impl Display for ASTError {
+struct ErrorDisplay<'a> {
+    error: &'a ASTError,
+    source: &'a str,
+}
+
+impl<'a> std::fmt::Display for ErrorDisplay<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.format_error(self.source, f)
+    }
+}
+
+impl ASTError {
+    fn format_error(&self, source: &str, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ASTError::Eof => write!(f, "{}", "Unexpected End Of File"),
             ASTError::TokenError(located_token) => write!(
                 f,
-                "Unexpected token \"{}\" at {}:{}",
-                located_token.token, located_token.line, located_token.row
+                "Unexpected token \"{}\" at {}:{}:{}",
+                located_token.token, source, located_token.line, located_token.row
             ),
             ASTError::BinaryNoLeft(located_token) => write!(
                 f,
-                "Unexpected token \"{}\" at {}:{}, This Token should have a left and right side",
-                located_token.token, located_token.line, located_token.row
+                "Unexpected token \"{}\" at {}:{}:{}, This Token should have a left and right side",
+                located_token.token, source, located_token.line, located_token.row
             ),
         }
     }
+
+    pub fn get_formated_error(&self, source: &str) -> String {
+        format!(
+            "{}",
+            ErrorDisplay {
+                error: self,
+                source
+            }
+        )
+    }
+    pub fn display_error(&self, source: &str) {
+        eprintln!("{}", self.get_formated_error(source));
+    }
 }
+
 pub struct ASTBuilder {
     current_index: usize,
     tokens: TokenVec,
