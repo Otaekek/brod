@@ -25,20 +25,22 @@ pub enum Unary {
 }
 
 #[derive(Clone, Debug)]
-pub enum Terminal {
+pub enum Primary {
     Number(f64),
     String(String),
     Boolean(bool),
+    Identifier(String),
     Nil,
 }
 
-impl Display for Terminal {
+impl Display for Primary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Terminal::Number(v) => write!(f, "Number: {}", v),
-            Terminal::String(v) => write!(f, "String: {}", v),
-            Terminal::Boolean(v) => write!(f, "Bool: {}", v),
-            Terminal::Nil => write!(f, "{}", "Nil"),
+            Primary::Number(v) => write!(f, "Number: {}", v),
+            Primary::String(v) => write!(f, "String: {}", v),
+            Primary::Boolean(v) => write!(f, "Bool: {}", v),
+            Primary::Nil => write!(f, "{}", "Nil"),
+            Primary::Identifier(s) => write!(f, "Identifier({})", s),
         }
     }
 }
@@ -57,7 +59,7 @@ pub struct Ternary {
 
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Terminal(Terminal),
+    Terminal(Primary),
     Unary(Unary),
     Binary(Binary),
     Ternary(Ternary),
@@ -107,7 +109,7 @@ impl AST {
 pub trait ASTVisitor {
     fn visit_ternary(&mut self, arena: &[Expr], ternary: &Ternary);
     fn visit_binary(&mut self, arena: &[Expr], binary: &Binary);
-    fn visit_terminal(&mut self, literal: &Terminal);
+    fn visit_terminal(&mut self, literal: &Primary);
     fn visit_unary(&mut self, arena: &[Expr], unary: &Unary);
 }
 
@@ -187,8 +189,8 @@ impl ASTBuilder {
         self.ast.arena.push(expr);
         self.ast.arena.len() - 1
     }
-    fn emit_terminal(&mut self, terminal: Terminal) -> ExprID {
-        self.ast.arena.push(Expr::Terminal(terminal));
+    fn emit_primary(&mut self, primary: Primary) -> ExprID {
+        self.ast.arena.push(Expr::Terminal(primary));
         self.ast.arena.len() - 1
     }
 
@@ -398,16 +400,16 @@ impl ASTBuilder {
         match self.advance()?.clone() {
             Token::Single(token) => match token {
                 lexer::SimpleToken::KeyWord(key_word_type) => match key_word_type {
-                    lexer::KeyWordType::False => Ok(self.emit_terminal(Terminal::Boolean(false))),
-                    lexer::KeyWordType::True => Ok(self.emit_terminal(Terminal::Boolean(true))),
-                    lexer::KeyWordType::Nil => Ok(self.emit_terminal(Terminal::Nil)),
+                    lexer::KeyWordType::False => Ok(self.emit_primary(Primary::Boolean(false))),
+                    lexer::KeyWordType::True => Ok(self.emit_primary(Primary::Boolean(true))),
+                    lexer::KeyWordType::Nil => Ok(self.emit_primary(Primary::Nil)),
                     _ => Err(self.error_token(-1)),
                 },
                 _ => Err(self.error_token(-1)),
             },
-            Token::StringLitteral(s) => Ok(self.emit_terminal(Terminal::String(s))),
-            Token::Identifier(_) => Err(self.error_token(-1)),
-            Token::Number(n) => Ok(self.emit_terminal(Terminal::Number(n))),
+            Token::Identifier(s) => Ok(self.emit_primary(Primary::Identifier(s))),
+            Token::StringLitteral(s) => Ok(self.emit_primary(Primary::String(s))),
+            Token::Number(n) => Ok(self.emit_primary(Primary::Number(n))),
         }
     }
 

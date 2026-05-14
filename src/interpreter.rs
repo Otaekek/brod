@@ -1,17 +1,18 @@
 use std::collections::HashMap;
 
-use crate::parser::{ASTVisitor, ExprID, Operator, Statement, Terminal, Unary, AST};
+use crate::parser::{ASTVisitor, ExprID, Operator, Primary, Statement, Unary, AST};
 
 pub struct Interpreter {
-    variables: HashMap<String, Terminal>,
+    variables: HashMap<String, Primary>,
 }
 
 #[derive(Debug)]
 pub enum InterpretorError {
     DivideByZero,
-    ForbiddenUnaryOperation(Unary, Terminal),
-    ForbiddenBinaryOperation(Operator, Terminal, Terminal),
+    ForbiddenUnaryOperation(Unary, Primary),
+    ForbiddenBinaryOperation(Operator, Primary, Primary),
     FobbiddenTernay,
+    UnDeclaredIdentifier(String),
 }
 impl InterpretorError {
     fn format_error(&self, source: &str, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,6 +35,9 @@ impl InterpretorError {
                 "{}",
                 "Runtime Error: left hand side of a ternary should be a boolean or a number"
             ),
+            InterpretorError::UnDeclaredIdentifier(v) => {
+                write!(f, "Runtime Error: Undeclared Variable {}", v)
+            }
         }
     }
     pub fn get_formated_error(&self, source: &str) -> String {
@@ -67,21 +71,21 @@ impl Interpreter {
         }
     }
 
-    pub fn eval_unary(&mut self, ast: &AST, unary: Unary) -> Result<Terminal, InterpretorError> {
+    pub fn eval_unary(&mut self, ast: &AST, unary: Unary) -> Result<Primary, InterpretorError> {
         match unary {
             crate::parser::Unary::Not(v) => {
                 let last = self.eval(ast, v)?;
                 match &last {
-                    Terminal::Number(v) => Ok(Terminal::Number(*v)),
-                    Terminal::Boolean(v) => Ok(Terminal::Boolean(!v)),
+                    Primary::Number(v) => Ok(Primary::Number(*v)),
+                    Primary::Boolean(v) => Ok(Primary::Boolean(!v)),
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
                 }
             }
             crate::parser::Unary::Minus(v) => {
                 let last = self.eval(ast, v)?;
                 match &last {
-                    Terminal::Number(v) => Ok(Terminal::Number(*v)),
-                    Terminal::Boolean(v) => Ok(Terminal::Boolean(!v)),
+                    Primary::Number(v) => Ok(Primary::Number(*v)),
+                    Primary::Boolean(v) => Ok(Primary::Boolean(!v)),
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
                 }
             }
@@ -90,61 +94,61 @@ impl Interpreter {
     pub fn eval_binary(
         &mut self,
         operator: Operator,
-        left: Terminal,
-        right: Terminal,
-    ) -> Result<Terminal, InterpretorError> {
+        left: Primary,
+        right: Primary,
+    ) -> Result<Primary, InterpretorError> {
         use crate::parser::Operator::*;
         match (&left, &right) {
-            (Terminal::Number(left_n), Terminal::Number(right_n)) => match operator {
-                Equal => Ok(Terminal::Boolean(left_n == right_n)),
-                NotEqual => Ok(Terminal::Boolean(left_n != right_n)),
-                Lesser => Ok(Terminal::Boolean(left_n < right_n)),
-                LesserEqual => Ok(Terminal::Boolean(left_n <= right_n)),
-                Greater => Ok(Terminal::Boolean(left_n > right_n)),
-                GreaterEqual => Ok(Terminal::Boolean(left_n >= right_n)),
-                Plus => Ok(Terminal::Number(left_n + right_n)),
-                Minus => Ok(Terminal::Number(left_n - right_n)),
-                Slash => Ok(Terminal::Number(left_n / right_n)),
-                Star => Ok(Terminal::Number(left_n * right_n)),
+            (Primary::Number(left_n), Primary::Number(right_n)) => match operator {
+                Equal => Ok(Primary::Boolean(left_n == right_n)),
+                NotEqual => Ok(Primary::Boolean(left_n != right_n)),
+                Lesser => Ok(Primary::Boolean(left_n < right_n)),
+                LesserEqual => Ok(Primary::Boolean(left_n <= right_n)),
+                Greater => Ok(Primary::Boolean(left_n > right_n)),
+                GreaterEqual => Ok(Primary::Boolean(left_n >= right_n)),
+                Plus => Ok(Primary::Number(left_n + right_n)),
+                Minus => Ok(Primary::Number(left_n - right_n)),
+                Slash => Ok(Primary::Number(left_n / right_n)),
+                Star => Ok(Primary::Number(left_n * right_n)),
             },
-            (Terminal::String(left_s), Terminal::String(right_s)) => match operator {
-                Equal => Ok(Terminal::Boolean(left_s == right_s)),
-                NotEqual => Ok(Terminal::Boolean(left_s != right_s)),
-                Plus => Ok(Terminal::String(left_s.to_owned() + right_s)),
+            (Primary::String(left_s), Primary::String(right_s)) => match operator {
+                Equal => Ok(Primary::Boolean(left_s == right_s)),
+                NotEqual => Ok(Primary::Boolean(left_s != right_s)),
+                Plus => Ok(Primary::String(left_s.to_owned() + right_s)),
                 _ => Err(InterpretorError::ForbiddenBinaryOperation(
                     operator, left, right,
                 )),
             },
-            (Terminal::Boolean(left_bool), Terminal::Boolean(right_bool)) => match operator {
-                Equal => Ok(Terminal::Boolean(left_bool == right_bool)),
-                NotEqual => Ok(Terminal::Boolean(left_bool != right_bool)),
-                Lesser => Ok(Terminal::Boolean(left_bool < right_bool)),
-                LesserEqual => Ok(Terminal::Boolean(left_bool <= right_bool)),
-                Greater => Ok(Terminal::Boolean(left_bool > right_bool)),
-                GreaterEqual => Ok(Terminal::Boolean(left_bool >= right_bool)),
+            (Primary::Boolean(left_bool), Primary::Boolean(right_bool)) => match operator {
+                Equal => Ok(Primary::Boolean(left_bool == right_bool)),
+                NotEqual => Ok(Primary::Boolean(left_bool != right_bool)),
+                Lesser => Ok(Primary::Boolean(left_bool < right_bool)),
+                LesserEqual => Ok(Primary::Boolean(left_bool <= right_bool)),
+                Greater => Ok(Primary::Boolean(left_bool > right_bool)),
+                GreaterEqual => Ok(Primary::Boolean(left_bool >= right_bool)),
                 _ => Err(InterpretorError::ForbiddenBinaryOperation(
                     operator, left, right,
                 )),
             },
-            (Terminal::Nil, Terminal::Nil) => match operator {
-                Equal => Ok(Terminal::Boolean(true)),
-                NotEqual => Ok(Terminal::Boolean(false)),
+            (Primary::Nil, Primary::Nil) => match operator {
+                Equal => Ok(Primary::Boolean(true)),
+                NotEqual => Ok(Primary::Boolean(false)),
                 _ => Err(InterpretorError::ForbiddenBinaryOperation(
                     operator, left, right,
                 )),
             },
-            (Terminal::String(s), Terminal::Number(n)) => {
+            (Primary::String(s), Primary::Number(n)) => {
                 if operator == Plus {
-                    Ok(Terminal::String(s.clone() + n.to_string().as_str()))
+                    Ok(Primary::String(s.clone() + n.to_string().as_str()))
                 } else {
                     Err(InterpretorError::ForbiddenBinaryOperation(
                         operator, left, right,
                     ))
                 }
             }
-            (Terminal::Number(n), Terminal::String(s)) => {
+            (Primary::Number(n), Primary::String(s)) => {
                 if operator == Plus {
-                    Ok(Terminal::String(s.clone() + n.to_string().as_str()))
+                    Ok(Primary::String(s.clone() + n.to_string().as_str()))
                 } else {
                     Err(InterpretorError::ForbiddenBinaryOperation(
                         operator, left, right,
@@ -160,25 +164,35 @@ impl Interpreter {
         &mut self,
         ast: &AST,
         input: Statement,
-    ) -> Result<Terminal, InterpretorError> {
+    ) -> Result<Primary, InterpretorError> {
         match input {
             Statement::ExprStatement(expr_id) => self.eval(ast, expr_id),
             Statement::PrintStatement(items) => {
                 for x in items {
                     let r = self.eval(ast, x)?;
-                    println!("{r}");
+                    match r {
+                        Primary::Identifier(s) => {
+                            let v = self.variables.get(&s);
+                            match v {
+                                Some(v) => println!("{v}"),
+                                None => return Err(InterpretorError::UnDeclaredIdentifier(s)),
+                            }
+                        }
+                        x => println!("{x}"),
+                    }
                 }
-                Ok(Terminal::Nil)
+                Ok(Primary::Nil)
             }
             Statement::Assignment(ident, expr_id) => {
                 let value = self.eval(ast, expr_id)?;
-                self.variables.get(&ident).get_or_insert(&value);
+                self.variables.insert(ident, value.clone());
+                println!("{:#?}", self.variables);
                 Ok(value)
             }
-            Statement::Empty => Ok(Terminal::Nil),
+            Statement::Empty => Ok(Primary::Nil),
         }
     }
-    pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<Terminal, InterpretorError> {
+    pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<Primary, InterpretorError> {
         match &ast.arena[root] {
             crate::parser::Expr::Terminal(terminal) => {
                 return Ok(terminal.clone());
@@ -192,11 +206,11 @@ impl Interpreter {
             crate::parser::Expr::Ternary(ternary) => {
                 let left = self.eval(ast, ternary.left)?;
                 match left {
-                    Terminal::Boolean(v) => match v {
+                    Primary::Boolean(v) => match v {
                         true => self.eval(ast, ternary.middle),
                         false => self.eval(ast, ternary.right),
                     },
-                    Terminal::Number(v) => match v > 0.0 {
+                    Primary::Number(v) => match v > 0.0 {
                         true => self.eval(ast, ternary.middle),
                         false => self.eval(ast, ternary.right),
                     },
@@ -207,9 +221,9 @@ impl Interpreter {
     }
 }
 
-pub fn eval(ast: AST) -> Result<Terminal, InterpretorError> {
+pub fn eval(ast: AST) -> Result<Primary, InterpretorError> {
     let mut interpreter = Interpreter::new();
-    let mut last = Terminal::Nil;
+    let mut last = Primary::Nil;
     for root in &ast.roots {
         let ret = interpreter.eval_statement(&ast, root.clone())?;
         last = ret;
