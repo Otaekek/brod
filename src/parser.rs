@@ -91,6 +91,7 @@ pub enum Statement {
     ExprStatement(ExprID),
     PrintStatement(Vec<ExprID>),
     Block(Vec<Declaration>),
+    IfStatement(ExprID, Vec<Statement>),
 }
 
 #[derive(Clone)]
@@ -271,6 +272,9 @@ impl ASTBuilder {
         } else if self.my_match(&[SimpleToken::LeftBrace]).is_some() {
             let mut declarations = vec![];
             loop {
+                if self.my_match(&[SimpleToken::RightBrace]).is_some() {
+                    return Ok(Statement::Block(declarations));
+                }
                 let declaration = self.declaration()?;
                 declarations.push(declaration);
                 if self.is_last() {
@@ -280,6 +284,17 @@ impl ASTBuilder {
                     return Ok(Statement::Block(declarations));
                 }
             }
+        } else if self
+            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::If)])
+            .is_some()
+        {
+            self.consume(SimpleToken::LeftParen)?;
+            let expr = self.expression()?;
+            self.consume(SimpleToken::RightParen)?;
+
+            let stmt = self.statement()?;
+
+            Ok(Statement::IfStatement(expr, vec![stmt]))
         } else {
             let expression = self.expression()?;
             Ok(Statement::ExprStatement(expression))

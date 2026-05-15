@@ -5,3 +5,13 @@ print(1 + 1 == 2);
 
 print(2 + 3 * 4 != 20);
 print((2 + 3) * 4 == 20);
+var a = "global a";
+{
+	var a = "outer a ";
+	{
+		var a = "inner a";
+		print(a);
+	}
+	print(a);
+}
+print(a);
