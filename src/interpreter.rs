@@ -248,6 +248,12 @@ impl Interpreter {
                 }
                 Ok(Primary::Nil)
             }
+            Statement::Block(declarations) => {
+                for declaration in declarations {
+                    self.eval_declaration(ast, declaration)?;
+                }
+                Ok(Primary::Nil)
+            }
         }
     }
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedPrimary, InterpretorError> {

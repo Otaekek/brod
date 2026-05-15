@@ -90,6 +90,7 @@ pub enum Declaration {
 pub enum Statement {
     ExprStatement(ExprID),
     PrintStatement(Vec<ExprID>),
+    Block(Vec<Declaration>),
 }
 
 #[derive(Clone)]
@@ -244,15 +245,19 @@ impl ASTBuilder {
         } else if self.current(0).token
             == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Var))
         {
-            self.vardecl()
+            let d = self.vardecl()?;
+            self.consume(SimpleToken::SemiColon)?;
+            Ok(d)
         } else if self.peek_next() == Some(Token::Single(SimpleToken::Equal)) {
             let ident = self.advance()?.clone();
             self.consume(SimpleToken::Equal)?;
             let right = self.expression()?;
-            match ident {
+            let d = match ident {
                 Token::Identifier(s) => return Ok(Declaration::Assignment(s.clone(), right)),
                 _ => Err(self.error_token(-3)),
-            }
+            }?;
+            self.consume(SimpleToken::SemiColon)?;
+            Ok(d)
         } else {
             let s = self.statement()?;
             Ok(Declaration::Statement(s))
@@ -263,6 +268,18 @@ impl ASTBuilder {
             lexer::KeyWordType::Print,
         ))) {
             self.print()
+        } else if self.my_match(&[SimpleToken::LeftBrace]).is_some() {
+            let mut declarations = vec![];
+            loop {
+                let declaration = self.declaration()?;
+                declarations.push(declaration);
+                if self.is_last() {
+                    return Err(ASTError::Eof);
+                }
+                if self.my_match(&[SimpleToken::RightBrace]).is_some() {
+                    return Ok(Statement::Block(declarations));
+                }
+            }
         } else {
             let expression = self.expression()?;
             Ok(Statement::ExprStatement(expression))
