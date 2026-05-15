@@ -1,12 +1,7 @@
 mod interpreter;
 mod lexer;
 mod parser;
-use std::{
-    fs::read,
-    io::{stdin, stdout},
-    path::PathBuf,
-    process::exit,
-};
+use std::{fs::read, path::PathBuf, process::exit};
 
 use clap::Parser;
 use colored::Colorize;

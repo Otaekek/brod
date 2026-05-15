@@ -10,7 +10,6 @@ pub struct Interpreter {
 
 #[derive(Debug)]
 pub enum InterpretorError {
-    DivideByZero,
     ForbiddenUnaryOperation(Unary, LocatedPrimary),
     ForbiddenBinaryOperation(Operator, LocatedPrimary, LocatedPrimary),
     FobbiddenTernay,
@@ -19,12 +18,11 @@ pub enum InterpretorError {
 impl InterpretorError {
     fn format_error(
         &self,
-        ast: &AST,
+        _ast: &AST,
         source: &str,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         match self {
-            InterpretorError::DivideByZero => write!(f, "{}", "Division by zero"),
             InterpretorError::ForbiddenUnaryOperation(unary, terminal) => {
                 write!(f, "Forbiden operator: {} on type {}", unary, terminal.inner)
             }

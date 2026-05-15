@@ -127,7 +127,7 @@ impl AST {
     //     };
     // }
 }
-pub trait ASTVisitor {
+pub trait _ASTVisitor {
     fn visit_ternary(&mut self, arena: &[Expr], ternary: &Ternary);
     fn visit_binary(&mut self, arena: &[Expr], binary: &Binary);
     fn visit_terminal(&mut self, literal: &Primary);
@@ -178,9 +178,6 @@ impl ASTError {
             }
         )
     }
-    pub fn display_error(&self, source: &str) {
-        eprintln!("{}", self.get_formated_error(source));
-    }
 }
 
 pub struct ASTBuilder {
@@ -225,7 +222,7 @@ impl ASTBuilder {
     fn is_last(&self) -> bool {
         self.current_index == self.tokens.tokens.len()
     }
-    fn peek_next(&self) -> Option<Token> {
+    fn _peek_next(&self) -> Option<Token> {
         if self.is_last() {
             None
         } else {
