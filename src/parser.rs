@@ -24,7 +24,7 @@ pub enum Unary {
     Minus(ExprID),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Primary {
     Number(f64),
     String(String),
@@ -66,17 +66,21 @@ pub enum Expr {
 }
 
 #[derive(Clone, Debug)]
+pub enum Declaration {
+    Statement(Statement),
+    Assignment(String, ExprID),
+    Empty,
+}
+#[derive(Clone, Debug)]
 pub enum Statement {
     ExprStatement(ExprID),
     PrintStatement(Vec<ExprID>),
-    Assignment(String, ExprID),
-    Empty,
 }
 
 #[derive(Clone, Debug)]
 pub struct AST {
     pub arena: Vec<Expr>,
-    pub roots: Vec<Statement>,
+    pub roots: Vec<Declaration>,
 }
 
 impl AST {
@@ -215,19 +219,23 @@ impl ASTBuilder {
         let token = self.tokens.tokens[(self.current_index as i64 + token_offset) as usize].clone();
         ASTError::TokenError(token)
     }
-    fn statement(&mut self) -> Result<Statement, ASTError> {
+    fn declaration(&mut self) -> Result<Declaration, ASTError> {
         while let Some(_) = self.my_match(&[SimpleToken::SemiColon]) {}
         if self.is_last() {
-            return Ok(Statement::Empty);
+            return Ok(Declaration::Empty);
         }
+        if self.current(0).token == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Var)) {
+            self.assignment()
+        } else {
+            let s = self.statement()?;
+            Ok(Declaration::Statement(s))
+        }
+    }
+    fn statement(&mut self) -> Result<Statement, ASTError> {
         let s = if self.check(&Token::Single(SimpleToken::KeyWord(
             lexer::KeyWordType::Print,
         ))) {
             self.print()
-        } else if self.current(0).token
-            == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Var))
-        {
-            self.assignment()
         } else {
             let expression = self.expression()?;
             Ok(Statement::ExprStatement(expression))
@@ -237,16 +245,17 @@ impl ASTBuilder {
         s
     }
 
-    fn assignment(&mut self) -> Result<Statement, ASTError> {
+    fn assignment(&mut self) -> Result<Declaration, ASTError> {
         self.consume(SimpleToken::KeyWord(lexer::KeyWordType::Var))?;
         let ident = self.advance()?.clone();
         self.consume(SimpleToken::Equal)?;
         let right = self.expression()?;
         match ident {
-            Token::Identifier(s) => return Ok(Statement::Assignment(s, right)),
+            Token::Identifier(s) => return Ok(Declaration::Assignment(s, right)),
             _ => Err(self.error_token(-3)),
         }
     }
+
     fn print(&mut self) -> Result<Statement, ASTError> {
         self.consume(SimpleToken::KeyWord(lexer::KeyWordType::Print))?;
         let mut to_print = vec![];
@@ -481,9 +490,9 @@ impl ASTBuilder {
                     recovery_mode = false;
                 }
             } else {
-                let statement = builder.statement();
-                match statement {
-                    Ok(statement) => builder.ast.roots.push(statement),
+                let declaration = builder.declaration();
+                match declaration {
+                    Ok(declaration) => builder.ast.roots.push(declaration),
                     Err(err) => {
                         errors.push(err);
                         recovery_mode = true;

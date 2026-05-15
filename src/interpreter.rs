@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::parser::{ASTVisitor, ExprID, Operator, Primary, Statement, Unary, AST};
+use crate::parser::{ASTVisitor, Declaration, ExprID, Operator, Primary, Statement, Unary, AST};
 
 pub struct Interpreter {
     variables: HashMap<String, Primary>,
@@ -153,6 +153,22 @@ impl Interpreter {
             )),
         }
     }
+
+    pub fn eval_declaration(
+        &mut self,
+        ast: &AST,
+        input: Declaration,
+    ) -> Result<Primary, InterpretorError> {
+        match input {
+            Declaration::Statement(statement) => self.eval_statement(ast, statement),
+            Declaration::Assignment(ident, expr_id) => {
+                let value = self.eval(ast, expr_id)?;
+                self.variables.insert(ident, value.clone());
+                Ok(value)
+            }
+            Declaration::Empty => Ok(Primary::Nil),
+        }
+    }
     pub fn eval_statement(
         &mut self,
         ast: &AST,
@@ -176,12 +192,6 @@ impl Interpreter {
                 }
                 Ok(Primary::Nil)
             }
-            Statement::Assignment(ident, expr_id) => {
-                let value = self.eval(ast, expr_id)?;
-                self.variables.insert(ident, value.clone());
-                Ok(value)
-            }
-            Statement::Empty => Ok(Primary::Nil),
         }
     }
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<Primary, InterpretorError> {
@@ -216,7 +226,7 @@ impl Interpreter {
 pub fn eval(ast: AST, interpreter: &mut Interpreter) -> Result<Primary, InterpretorError> {
     let mut last = Primary::Nil;
     for root in &ast.roots {
-        let ret = interpreter.eval_statement(&ast, root.clone())?;
+        let ret = interpreter.eval_declaration(&ast, root.clone())?;
         last = ret;
     }
     Ok(last)

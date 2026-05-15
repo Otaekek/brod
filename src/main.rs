@@ -11,7 +11,10 @@ use std::{
 use clap::Parser;
 use colored::Colorize;
 
-use crate::{interpreter::Interpreter, parser::ASTBuilder};
+use crate::{
+    interpreter::Interpreter,
+    parser::{ASTBuilder, Primary},
+};
 
 #[derive(Clone, Debug, Parser)]
 struct CliArgs {
@@ -36,7 +39,11 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter) -> bool
         if ast.1.is_empty() {
             let result = interpreter::eval(ast.0, interpreter);
             match result {
-                Ok(v) => println!("{}: {}", "Ok".green(), v),
+                Ok(v) => {
+                    if v != Primary::Nil {
+                        println!("{}: {}", "Ok".green(), v)
+                    }
+                }
                 Err(err) => eprintln!(
                     "{} {}",
                     "Runtime Error:".red(),
