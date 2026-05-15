@@ -18,10 +18,18 @@ pub enum Operator {
     Star,
 }
 pub type ExprID = usize;
+pub type TokenID = usize;
 #[derive(Copy, Clone, Debug, enum_display::EnumDisplay)]
 pub enum Unary {
     Not(ExprID),
     Minus(ExprID),
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct LocatedPrimary {
+    pub inner: Primary,
+    // Inclusive range
+    pub token_start: TokenID,
+    pub token_end: TokenID,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,7 +40,15 @@ pub enum Primary {
     Identifier(String),
     Nil,
 }
-
+impl Primary {
+    pub fn located(self, token_start: usize, token_end: usize) -> LocatedPrimary {
+        LocatedPrimary {
+            inner: self,
+            token_start,
+            token_end,
+        }
+    }
+}
 impl Display for Primary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -56,10 +72,9 @@ pub struct Ternary {
     pub middle: ExprID,
     pub right: ExprID,
 }
-
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Terminal(Primary),
+    Terminal(LocatedPrimary),
     Unary(Unary),
     Binary(Binary),
     Ternary(Ternary),
@@ -77,15 +92,17 @@ pub enum Statement {
     PrintStatement(Vec<ExprID>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AST {
+    pub tokens: TokenVec,
     pub arena: Vec<Expr>,
     pub roots: Vec<Declaration>,
 }
 
 impl AST {
-    pub fn new() -> Self {
+    pub fn new(tokens: TokenVec) -> Self {
         Self {
+            tokens: tokens,
             arena: Vec::with_capacity(4096),
             roots: vec![],
         }
@@ -193,8 +210,12 @@ impl ASTBuilder {
         self.ast.arena.push(expr);
         self.ast.arena.len() - 1
     }
-    fn emit_primary(&mut self, primary: Primary) -> ExprID {
-        self.ast.arena.push(Expr::Terminal(primary));
+    fn emit_primary(&mut self, primary: Primary, offset: i64) -> ExprID {
+        self.ast.arena.push(Expr::Terminal(LocatedPrimary {
+            inner: primary,
+            token_start: self.current_index + offset as usize,
+            token_end: self.current_index + offset as usize,
+        }));
         self.ast.arena.len() - 1
     }
 
@@ -409,16 +430,16 @@ impl ASTBuilder {
         match self.advance()?.clone() {
             Token::Single(token) => match token {
                 lexer::SimpleToken::KeyWord(key_word_type) => match key_word_type {
-                    lexer::KeyWordType::False => Ok(self.emit_primary(Primary::Boolean(false))),
-                    lexer::KeyWordType::True => Ok(self.emit_primary(Primary::Boolean(true))),
-                    lexer::KeyWordType::Nil => Ok(self.emit_primary(Primary::Nil)),
+                    lexer::KeyWordType::False => Ok(self.emit_primary(Primary::Boolean(false), 0)),
+                    lexer::KeyWordType::True => Ok(self.emit_primary(Primary::Boolean(true), 0)),
+                    lexer::KeyWordType::Nil => Ok(self.emit_primary(Primary::Nil, 0)),
                     _ => Err(self.error_token(-1)),
                 },
                 _ => Err(self.error_token(-1)),
             },
-            Token::Identifier(s) => Ok(self.emit_primary(Primary::Identifier(s))),
-            Token::StringLitteral(s) => Ok(self.emit_primary(Primary::String(s))),
-            Token::Number(n) => Ok(self.emit_primary(Primary::Number(n))),
+            Token::Identifier(s) => Ok(self.emit_primary(Primary::Identifier(s), 0)),
+            Token::StringLitteral(s) => Ok(self.emit_primary(Primary::String(s), 0)),
+            Token::Number(n) => Ok(self.emit_primary(Primary::Number(n), 0)),
         }
     }
 
@@ -474,8 +495,8 @@ impl ASTBuilder {
         let mut errors = vec![];
         let mut builder = Self {
             current_index: 0,
-            tokens: input,
-            ast: AST::new(),
+            tokens: input.clone(),
+            ast: AST::new(input.clone()),
         };
         let mut recovery_mode = false;
         while builder.current_index.clone() < builder.tokens.tokens.len() {

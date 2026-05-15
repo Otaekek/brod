@@ -37,7 +37,7 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter) -> bool
             );
         }
         if ast.1.is_empty() {
-            let result = interpreter::eval(ast.0, interpreter);
+            let result = interpreter::eval(ast.0.clone(), interpreter);
             match result {
                 Ok(v) => {
                     if v != Primary::Nil {
@@ -47,7 +47,7 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter) -> bool
                 Err(err) => eprintln!(
                     "{} {}",
                     "Runtime Error:".red(),
-                    err.get_formated_error(&source_name)
+                    err.get_formated_error(&ast.0, &source_name)
                 ),
             }
         }

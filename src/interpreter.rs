@@ -1,30 +1,42 @@
 use std::collections::HashMap;
 
-use crate::parser::{ASTVisitor, Declaration, ExprID, Operator, Primary, Statement, Unary, AST};
+use crate::parser::{
+    Declaration, ExprID, LocatedPrimary, Operator, Primary, Statement, Unary, AST,
+};
 
 pub struct Interpreter {
-    variables: HashMap<String, Primary>,
+    variables: HashMap<String, LocatedPrimary>,
 }
 
 #[derive(Debug)]
 pub enum InterpretorError {
     DivideByZero,
-    ForbiddenUnaryOperation(Unary, Primary),
-    ForbiddenBinaryOperation(Operator, Primary, Primary),
+    ForbiddenUnaryOperation(Unary, LocatedPrimary),
+    ForbiddenBinaryOperation(Operator, LocatedPrimary, LocatedPrimary),
     FobbiddenTernay,
-    UnDeclaredIdentifier(String),
+    UnDeclaredIdentifier(LocatedPrimary),
 }
 impl InterpretorError {
-    fn format_error(&self, source: &str, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn format_error(
+        &self,
+        ast: &AST,
+        source: &str,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
         match self {
             InterpretorError::DivideByZero => write!(f, "{}", "Division by zero"),
             InterpretorError::ForbiddenUnaryOperation(unary, terminal) => {
-                write!(f, "Forbiden operator: {} on type {}", unary, terminal)
+                write!(f, "Forbiden operator: {} on type {}", unary, terminal.inner)
             }
             InterpretorError::ForbiddenBinaryOperation(operator, terminal, terminal1) => write!(
                 f,
-                "Forbiden operator: {} on type {} and {}",
-                operator, terminal, terminal1
+                "Forbiden operator: {} on type {} and {} in file {} from {} to {}",
+                operator,
+                terminal.inner,
+                terminal1.inner,
+                source,
+                terminal.token_start,
+                terminal1.token_end
             ),
             InterpretorError::FobbiddenTernay => write!(
                 f,
@@ -32,14 +44,15 @@ impl InterpretorError {
                 "left hand side of a ternary should be a boolean or a number"
             ),
             InterpretorError::UnDeclaredIdentifier(v) => {
-                write!(f, "Undeclared Variable {}", v)
+                write!(f, "Undeclared Variable {}", v.inner)
             }
         }
     }
-    pub fn get_formated_error(&self, source: &str) -> String {
+    pub fn get_formated_error(&self, ast: &AST, source: &str) -> String {
         format!(
             "{}",
             ErrorDisplay {
+                ast,
                 error: self,
                 source
             }
@@ -49,11 +62,12 @@ impl InterpretorError {
 struct ErrorDisplay<'a> {
     error: &'a InterpretorError,
     source: &'a str,
+    ast: &'a AST,
 }
 
 impl<'a> std::fmt::Display for ErrorDisplay<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.error.format_error(self.source, f)
+        self.error.format_error(self.ast, self.source, f)
     }
 }
 
@@ -64,21 +78,33 @@ impl Interpreter {
         }
     }
 
-    pub fn eval_unary(&mut self, ast: &AST, unary: Unary) -> Result<Primary, InterpretorError> {
+    pub fn eval_unary(
+        &mut self,
+        ast: &AST,
+        unary: Unary,
+    ) -> Result<LocatedPrimary, InterpretorError> {
         match unary {
             crate::parser::Unary::Not(v) => {
                 let last = self.eval(ast, v)?;
-                match &last {
-                    Primary::Number(v) => Ok(Primary::Number(*v)),
-                    Primary::Boolean(v) => Ok(Primary::Boolean(!v)),
+                match &last.inner {
+                    Primary::Number(v) => {
+                        Ok(Primary::Number(*v).located(last.token_start, last.token_end))
+                    }
+                    Primary::Boolean(v) => {
+                        Ok(Primary::Boolean(!v).located(last.token_start, last.token_end))
+                    }
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
                 }
             }
             crate::parser::Unary::Minus(v) => {
                 let last = self.eval(ast, v)?;
-                match &last {
-                    Primary::Number(v) => Ok(Primary::Number(*v)),
-                    Primary::Boolean(v) => Ok(Primary::Boolean(!v)),
+                match &last.inner {
+                    Primary::Number(v) => {
+                        Ok(Primary::Number(*v).located(last.token_start, last.token_end))
+                    }
+                    Primary::Boolean(v) => {
+                        Ok(Primary::Boolean(!v).located(last.token_start, last.token_end))
+                    }
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
                 }
             }
@@ -87,11 +113,13 @@ impl Interpreter {
     pub fn eval_binary(
         &mut self,
         operator: Operator,
-        left: Primary,
-        right: Primary,
-    ) -> Result<Primary, InterpretorError> {
+        left: LocatedPrimary,
+        right: LocatedPrimary,
+    ) -> Result<LocatedPrimary, InterpretorError> {
         use crate::parser::Operator::*;
-        match (&left, &right) {
+        let token_start = left.token_start;
+        let token_end = right.token_end;
+        let ret = match (&left.inner, &right.inner) {
             (Primary::Number(left_n), Primary::Number(right_n)) => match operator {
                 Equal => Ok(Primary::Boolean(left_n == right_n)),
                 NotEqual => Ok(Primary::Boolean(left_n != right_n)),
@@ -151,7 +179,8 @@ impl Interpreter {
             _ => Err(InterpretorError::ForbiddenBinaryOperation(
                 operator, left, right,
             )),
-        }
+        };
+        Ok(ret?.located(token_start, token_end))
     }
 
     pub fn eval_declaration(
@@ -164,7 +193,7 @@ impl Interpreter {
             Declaration::Assignment(ident, expr_id) => {
                 let value = self.eval(ast, expr_id)?;
                 self.variables.insert(ident, value.clone());
-                Ok(value)
+                Ok(value.inner)
             }
             Declaration::Empty => Ok(Primary::Nil),
         }
@@ -175,16 +204,16 @@ impl Interpreter {
         input: Statement,
     ) -> Result<Primary, InterpretorError> {
         match input {
-            Statement::ExprStatement(expr_id) => self.eval(ast, expr_id),
+            Statement::ExprStatement(expr_id) => Ok(self.eval(ast, expr_id)?.inner),
             Statement::PrintStatement(items) => {
                 for x in items {
                     let r = self.eval(ast, x)?;
-                    match r {
+                    match &r.inner {
                         Primary::Identifier(s) => {
-                            let v = self.variables.get(&s);
+                            let v = self.variables.get(s);
                             match v {
-                                Some(v) => println!("{v}"),
-                                None => return Err(InterpretorError::UnDeclaredIdentifier(s)),
+                                Some(v) => println!("{}", v.inner),
+                                None => return Err(InterpretorError::UnDeclaredIdentifier(r)),
                             }
                         }
                         x => println!("{x}"),
@@ -194,7 +223,7 @@ impl Interpreter {
             }
         }
     }
-    pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<Primary, InterpretorError> {
+    pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedPrimary, InterpretorError> {
         match &ast.arena[root] {
             crate::parser::Expr::Terminal(terminal) => {
                 return Ok(terminal.clone());
@@ -207,7 +236,7 @@ impl Interpreter {
             }
             crate::parser::Expr::Ternary(ternary) => {
                 let left = self.eval(ast, ternary.left)?;
-                match left {
+                match left.inner {
                     Primary::Boolean(v) => match v {
                         true => self.eval(ast, ternary.middle),
                         false => self.eval(ast, ternary.right),
