@@ -14,7 +14,6 @@ impl Display for RpnToken {
             RpnToken::Operator(operator) => match operator {
                 Operator::Equal => write!(f, "{}", "="),
                 Operator::NotEqual => write!(f, "{}", "!="),
-                // Operator::Assignment => write!(f, "{}", "=="),
                 Operator::Lesser => write!(f, "{}", "<"),
                 Operator::LesserEqual => write!(f, "{}", "<="),
                 Operator::Greater => write!(f, "{}", ">"),

@@ -7,7 +7,6 @@ use super::lexer;
 pub enum Operator {
     Equal,
     NotEqual,
-    // Assignment,
     Lesser,
     LesserEqual,
     Greater,
@@ -83,6 +82,7 @@ pub enum Expr {
 #[derive(Clone, Debug)]
 pub enum Declaration {
     Statement(Statement),
+    VarDecl(String, ExprID),
     Assignment(String, ExprID),
     Empty,
 }
@@ -222,7 +222,7 @@ impl ASTBuilder {
     fn is_last(&self) -> bool {
         self.current_index == self.tokens.tokens.len()
     }
-    fn _peek_next(&self) -> Option<Token> {
+    fn peek_next(&self) -> Option<Token> {
         if self.is_last() {
             None
         } else {
@@ -241,9 +241,18 @@ impl ASTBuilder {
         while let Some(_) = self.my_match(&[SimpleToken::SemiColon]) {}
         if self.is_last() {
             return Ok(Declaration::Empty);
-        }
-        if self.current(0).token == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Var)) {
-            self.assignment()
+        } else if self.current(0).token
+            == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Var))
+        {
+            self.vardecl()
+        } else if self.peek_next() == Some(Token::Single(SimpleToken::Equal)) {
+            let ident = self.advance()?.clone();
+            self.consume(SimpleToken::Equal)?;
+            let right = self.expression()?;
+            match ident {
+                Token::Identifier(s) => return Ok(Declaration::Assignment(s.clone(), right)),
+                _ => Err(self.error_token(-3)),
+            }
         } else {
             let s = self.statement()?;
             Ok(Declaration::Statement(s))
@@ -263,13 +272,13 @@ impl ASTBuilder {
         s
     }
 
-    fn assignment(&mut self) -> Result<Declaration, ASTError> {
+    fn vardecl(&mut self) -> Result<Declaration, ASTError> {
         self.consume(SimpleToken::KeyWord(lexer::KeyWordType::Var))?;
         let ident = self.advance()?.clone();
         self.consume(SimpleToken::Equal)?;
         let right = self.expression()?;
         match ident {
-            Token::Identifier(s) => return Ok(Declaration::Assignment(s, right)),
+            Token::Identifier(s) => return Ok(Declaration::VarDecl(s, right)),
             _ => Err(self.error_token(-3)),
         }
     }

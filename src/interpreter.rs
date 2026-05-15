@@ -4,8 +4,34 @@ use crate::parser::{
     Declaration, ExprID, LocatedPrimary, Operator, Primary, Statement, Unary, AST,
 };
 
+pub struct Environment {
+    globals: HashMap<String, LocatedPrimary>,
+}
+
+impl Environment {
+    pub fn new() -> Self {
+        Self {
+            globals: HashMap::new(),
+        }
+    }
+    pub fn add_global(&mut self, name: String, value: LocatedPrimary) {
+        self.globals.insert(name, value.clone());
+    }
+    pub fn get_global(
+        &self,
+        name: &String,
+        ident: &LocatedPrimary,
+    ) -> Result<LocatedPrimary, InterpretorError> {
+        let r = self.globals.get(name);
+
+        match r {
+            Some(v) => Ok(v.clone()),
+            None => Err(InterpretorError::UnDeclaredIdentifier(ident.clone())),
+        }
+    }
+}
 pub struct Interpreter {
-    variables: HashMap<String, LocatedPrimary>,
+    environment: Environment,
 }
 
 #[derive(Debug)]
@@ -72,7 +98,7 @@ impl<'a> std::fmt::Display for ErrorDisplay<'a> {
 impl Interpreter {
     pub fn new() -> Self {
         Self {
-            variables: HashMap::new(),
+            environment: Environment::new(),
         }
     }
 
@@ -188,12 +214,18 @@ impl Interpreter {
     ) -> Result<Primary, InterpretorError> {
         match input {
             Declaration::Statement(statement) => self.eval_statement(ast, statement),
-            Declaration::Assignment(ident, expr_id) => {
+            Declaration::VarDecl(ident, expr_id) => {
                 let value = self.eval(ast, expr_id)?;
-                self.variables.insert(ident, value.clone());
+                self.environment.add_global(ident, value.clone());
                 Ok(value.inner)
             }
             Declaration::Empty => Ok(Primary::Nil),
+            Declaration::Assignment(ident, expr_id) => {
+                let value = self.eval(ast, expr_id)?;
+                let _ = self.environment.get_global(&ident, &value)?;
+                self.environment.add_global(ident, value.clone());
+                Ok(value.inner)
+            }
         }
     }
     pub fn eval_statement(
@@ -206,13 +238,10 @@ impl Interpreter {
             Statement::PrintStatement(items) => {
                 for x in items {
                     let r = self.eval(ast, x)?;
-                    match &r.inner {
+                    match &r.inner.clone() {
                         Primary::Identifier(s) => {
-                            let v = self.variables.get(s);
-                            match v {
-                                Some(v) => println!("{}", v.inner),
-                                None => return Err(InterpretorError::UnDeclaredIdentifier(r)),
-                            }
+                            let v = self.environment.get_global(s, &r)?;
+                            println!("{}", v.inner);
                         }
                         x => println!("{x}"),
                     }
@@ -223,9 +252,10 @@ impl Interpreter {
     }
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedPrimary, InterpretorError> {
         match &ast.arena[root] {
-            crate::parser::Expr::Terminal(terminal) => {
-                return Ok(terminal.clone());
-            }
+            crate::parser::Expr::Terminal(terminal) => match &terminal.inner {
+                Primary::Identifier(v) => self.environment.get_global(v, terminal),
+                _ => return Ok(terminal.clone()),
+            },
             crate::parser::Expr::Unary(unary) => self.eval_unary(ast, *unary),
             crate::parser::Expr::Binary(binary) => {
                 let left = self.eval(ast, binary.left)?;
@@ -245,7 +275,7 @@ impl Interpreter {
                     },
                     _ => Err(InterpretorError::FobbiddenTernay),
                 }
-            } // crate::parser::Expr::Statement(expr_id) => self.eval(ast, *expr_id),
+            }
         }
     }
 }
