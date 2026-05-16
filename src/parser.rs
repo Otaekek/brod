@@ -83,6 +83,11 @@ pub struct LogicalOr {
     pub left: ExprID,
     pub right: ExprID,
 }
+#[derive(Clone, Debug)]
+pub struct FunctionCall {
+    pub func: ExprID,
+    pub arguments: Vec<ExprID>,
+}
 
 #[derive(Clone, Debug)]
 pub enum Expr {
@@ -93,6 +98,7 @@ pub enum Expr {
     LogicalAnd(LogicalAnd),
     LogicalOr(LogicalOr),
     Assignment(String, ExprID),
+    FunctionCall(FunctionCall),
 }
 
 #[derive(Clone, Debug)]
@@ -562,10 +568,39 @@ impl ASTBuilder {
                 _ => return Err(self.error_token(-1, vec![SimpleToken::Bang, SimpleToken::Minus])),
             }
         } else {
-            self.primary()
+            self.function_call()
         }
     }
 
+    fn function_call(&mut self) -> Result<ExprID, ASTError> {
+        let mut left = self.primary()?;
+
+        while self.my_match(&[SimpleToken::LeftParen]).is_some() {
+            let mut arguments = vec![];
+            loop {
+                if self.my_match(&[SimpleToken::RightParen]).is_some() {
+                    left = self.emit(Expr::FunctionCall(FunctionCall {
+                        func: left,
+                        arguments: vec![],
+                    }));
+                    arguments.clear();
+                    break;
+                }
+                arguments.push(self.expression()?);
+
+                if self.my_match(&[SimpleToken::RightParen]).is_some() {
+                    left = self.emit(Expr::FunctionCall(FunctionCall {
+                        func: left,
+                        arguments: arguments.clone(),
+                    }));
+                    arguments.clear();
+                    break;
+                }
+                self.consume(SimpleToken::Comma)?;
+            }
+        }
+        Ok(left)
+    }
     fn primary(&mut self) -> Result<ExprID, ASTError> {
         if let Some(_) = self.my_match(&[SimpleToken::LeftParen]) {
             let expression = self.expression()?;

@@ -391,6 +391,10 @@ impl Interpreter {
                 self.environment.assign(s, &expr)?;
                 Ok(expr)
             }
+            crate::parser::Expr::FunctionCall(function_call) => {
+                println!("function call: {:#?}", function_call);
+                self.eval(ast, function_call.func)
+            }
         }
     }
 }
