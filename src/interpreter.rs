@@ -1,12 +1,89 @@
+use crate::{
+    foreign_function::init_foreign_functions,
+    parser::{
+        Declaration, ExprID, FunctionCall, LocatedPrimary, Operator, Primary, Statement, Unary, AST,
+    },
+};
 use std::collections::HashMap;
 
-use crate::parser::{
-    Declaration, ExprID, LocatedPrimary, Operator, Primary, Statement, Unary, AST,
-};
+#[derive(Clone, Debug)]
+pub struct ForeignFunction {
+    function: fn(&[LocatedPrimary], &mut Environment) -> Result<Primary, InterpretorError>,
+    num_arguments: usize,
+}
+
+impl ForeignFunction {
+    pub fn new(
+        function: fn(&[LocatedPrimary], &mut Environment) -> Result<Primary, InterpretorError>,
+        num_arguments: usize,
+    ) -> Self {
+        Self {
+            function,
+            num_arguments,
+        }
+    }
+    pub fn call(
+        &self,
+        arguments: &[LocatedPrimary],
+        env: &mut Environment,
+    ) -> Result<Primary, InterpretorError> {
+        (self.function)(arguments, env)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ResidentFunction {
+    arguments: Vec<String>,
+    statement: Statement,
+}
+
+impl ResidentFunction {
+    pub fn call(
+        &self,
+        ast: &AST,
+        interpreter: &mut Interpreter,
+        arguments: &[LocatedPrimary],
+    ) -> Result<Primary, InterpretorError> {
+        interpreter.environment.push();
+
+        for (name, value) in self.arguments.iter().zip(arguments.iter()) {
+            interpreter.environment.add(name.clone(), value.clone());
+        }
+        let ret = interpreter.eval_statement(ast, self.statement.clone())?;
+        interpreter.environment.pop();
+        Ok(ret)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum Function {
+    Foreign(ForeignFunction),
+    Resident(ResidentFunction),
+}
+
+impl Function {
+    pub fn call(
+        &self,
+        ast: &AST,
+        interpreter: &mut Interpreter,
+        arguments: &[LocatedPrimary],
+    ) -> Result<LocatedPrimary, InterpretorError> {
+        // TODO: Locate callee
+        match self {
+            Function::Foreign(foreign_function) => foreign_function
+                .call(arguments, &mut interpreter.environment)
+                .map(|x| x.located(0, 0)),
+            Function::Resident(resident_function) => resident_function
+                .call(ast, interpreter, arguments)
+                .map(|x| x.located(0, 0)),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Environment {
     stack: Vec<HashMap<String, LocatedPrimary>>,
+    pub functions: HashMap<String, Function>,
 }
 
 impl Environment {
@@ -14,6 +91,7 @@ impl Environment {
         Self {
             // Start with global scope
             stack: vec![HashMap::new()],
+            functions: HashMap::new(),
         }
     }
     pub fn add(&mut self, name: String, value: LocatedPrimary) {
@@ -82,6 +160,9 @@ pub enum InterpretorError {
     ForbiddenBinaryOperation(Operator, LocatedPrimary, LocatedPrimary),
     FobbiddenTernay,
     ForbidenBreak,
+    NotCallable(LocatedPrimary),
+    UnknownFunction(String),
+    InvalidSignature(LocatedPrimary),
     ForbidenContinue,
     UnDeclaredIdentifier(LocatedPrimary),
 }
@@ -125,6 +206,15 @@ impl InterpretorError {
             InterpretorError::ForbidenContinue => {
                 write!(f, "{}", "Continue should be in while loop")
             }
+            InterpretorError::NotCallable(located_primary) => {
+                write!(f, "{:#?} is not callable", located_primary)
+            }
+            InterpretorError::InvalidSignature(located_primary) => {
+                write!(f, "{:#?} invalid number of arguments", located_primary)
+            }
+            InterpretorError::UnknownFunction(name) => {
+                write!(f, "unknown function {}", name)
+            }
         }
     }
     pub fn get_formated_error(&self, ast: &AST, source: &str) -> String {
@@ -151,10 +241,42 @@ impl<'a> std::fmt::Display for ErrorDisplay<'a> {
 }
 
 impl Interpreter {
-    pub fn new() -> Self {
-        Self {
-            environment: Environment::new(),
+    pub fn bind_forein(&mut self, name: &str, function: ForeignFunction) {
+        self.environment
+            .functions
+            .insert(name.to_string(), Function::Foreign(function));
+    }
+    fn function_call(
+        &mut self,
+        ast: &AST,
+        function_call: &FunctionCall,
+    ) -> Result<LocatedPrimary, InterpretorError> {
+        let callee = match &ast.expr_arena[function_call.func] {
+            crate::parser::Expr::Terminal(located_primary) => match &located_primary.inner {
+                Primary::Identifier(s) => s,
+                _ => return Err(InterpretorError::FobbiddenTernay),
+            },
+            _ => return Err(InterpretorError::FobbiddenTernay),
+        };
+
+        let arguments = function_call
+            .arguments
+            .iter()
+            .map(|expr_id| self.eval(ast, *expr_id))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let function = self.environment.functions.get(callee);
+        match function.cloned() {
+            Some(function) => function.call(ast, self, &arguments),
+            None => Err(InterpretorError::UnknownFunction(callee.clone())),
         }
+    }
+    pub fn new() -> Self {
+        let mut ret = Self {
+            environment: Environment::new(),
+        };
+        init_foreign_functions(&mut ret);
+        ret
     }
 
     pub fn eval_unary(
@@ -392,8 +514,7 @@ impl Interpreter {
                 Ok(expr)
             }
             crate::parser::Expr::FunctionCall(function_call) => {
-                println!("function call: {:#?}", function_call);
-                self.eval(ast, function_call.func)
+                self.function_call(ast, function_call)
             }
         }
     }

@@ -2,16 +2,25 @@
 print(1 + 1 == 2);
 
 
-
 print(2 + 3 * 4 != 20);
 print((2 + 3) * 4 == 20);
 var a = "global a";
 {
-	var a = "outer a ";
+	var a = "outer a";
 	{
 		var a = "inner a";
-		print(a);
+		print(a == "inner a");
 	}
-	print(a);
+	print(a == "outer a");
 }
-print(a);
+print(a == "global a");
+
+var b = 2;
+
+while (b < 64) {
+	b = b * 2; 
+}
+
+print(b == 64);
+print(abs(-1) == 1);
+print(sin(3.1415 / 2.0) <= 1.0);

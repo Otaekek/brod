@@ -1,3 +1,4 @@
+mod foreign_function;
 mod interpreter;
 mod lexer;
 mod parser;

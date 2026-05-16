@@ -39,6 +39,7 @@ pub enum Primary {
     String(String),
     Boolean(bool),
     Identifier(String),
+    Callee(String, usize),
     Nil,
 }
 impl Primary {
@@ -58,6 +59,7 @@ impl Display for Primary {
             Primary::Boolean(v) => write!(f, "Bool: {}", v),
             Primary::Nil => write!(f, "{}", "Nil"),
             Primary::Identifier(s) => write!(f, "Identifier({})", s),
+            Primary::Callee(s, _) => write!(f, "Function Call({})", s),
         }
     }
 }
@@ -118,7 +120,7 @@ pub enum Statement {
     Continue(LocatedToken),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AST {
     pub _tokens: TokenVec,
     pub expr_arena: Vec<Expr>,
@@ -165,6 +167,7 @@ pub trait _ASTVisitor {
 #[derive(Debug, Clone)]
 pub enum ASTError {
     Eof,
+    TooManyArguments,
     TokenError(LocatedToken, Vec<SimpleToken>),
     BinaryNoLeft(LocatedToken),
     RValueAssignment(ExprID),
@@ -198,6 +201,11 @@ impl ASTError {
             ASTError::RValueAssignment(_) => {
                 write!(f, "Unexpected token assignment should have a lvalue",)
             }
+            ASTError::TooManyArguments => write!(
+                f,
+                "{}",
+                "Too many argument for function call, maximum is 255"
+            ),
         }
     }
 
@@ -577,6 +585,7 @@ impl ASTBuilder {
 
         while self.my_match(&[SimpleToken::LeftParen]).is_some() {
             let mut arguments = vec![];
+            let mut arguments_count = 0;
             loop {
                 if self.my_match(&[SimpleToken::RightParen]).is_some() {
                     left = self.emit(Expr::FunctionCall(FunctionCall {
@@ -584,6 +593,10 @@ impl ASTBuilder {
                         arguments: vec![],
                     }));
                     arguments.clear();
+                    arguments_count += 1;
+                    if arguments_count > 255 {
+                        return Err(ASTError::TooManyArguments);
+                    }
                     break;
                 }
                 arguments.push(self.expression()?);
@@ -593,6 +606,10 @@ impl ASTBuilder {
                         func: left,
                         arguments: arguments.clone(),
                     }));
+                    arguments_count += 1;
+                    if arguments_count > 255 {
+                        return Err(ASTError::TooManyArguments);
+                    }
                     arguments.clear();
                     break;
                 }

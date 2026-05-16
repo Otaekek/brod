@@ -143,7 +143,7 @@ impl LocatedToken {
     }
 }
 
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default, Debug)]
 pub struct TokenVec {
     pub tokens: Vec<LocatedToken>,
 }
