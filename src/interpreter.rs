@@ -81,6 +81,7 @@ pub enum InterpretorError {
     ForbiddenUnaryOperation(Unary, LocatedPrimary),
     ForbiddenBinaryOperation(Operator, LocatedPrimary, LocatedPrimary),
     FobbiddenTernay,
+    ForbidenBreak,
     UnDeclaredIdentifier(LocatedPrimary),
 }
 impl InterpretorError {
@@ -119,6 +120,7 @@ impl InterpretorError {
                     located_primary.inner, expected
                 )
             }
+            InterpretorError::ForbidenBreak => write!(f, "{}", "Break should be in while loop"),
         }
     }
     pub fn get_formated_error(&self, ast: &AST, source: &str) -> String {
@@ -160,9 +162,6 @@ impl Interpreter {
             crate::parser::Unary::Not(v) => {
                 let last = self.eval(ast, v)?;
                 match &last.inner {
-                    Primary::Number(v) => {
-                        Ok(Primary::Number(*v).located(last.token_start, last.token_end))
-                    }
                     Primary::Boolean(v) => {
                         Ok(Primary::Boolean(!v).located(last.token_start, last.token_end))
                     }
@@ -173,10 +172,7 @@ impl Interpreter {
                 let last = self.eval(ast, v)?;
                 match &last.inner {
                     Primary::Number(v) => {
-                        Ok(Primary::Number(*v).located(last.token_start, last.token_end))
-                    }
-                    Primary::Boolean(v) => {
-                        Ok(Primary::Boolean(!v).located(last.token_start, last.token_end))
+                        Ok(Primary::Number(-*v).located(last.token_start, last.token_end))
                     }
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
                 }
@@ -332,10 +328,14 @@ impl Interpreter {
                             return Err(InterpretorError::UnexpectedType(r, "Boolean".to_string()))
                         }
                     };
-                    self.eval_statement(ast, stmt.clone())?;
+                    match self.eval_statement(ast, stmt.clone()) {
+                        Err(InterpretorError::ForbidenBreak) => break,
+                        _ => {}
+                    };
                 }
                 Ok(Primary::Nil)
             }
+            Statement::Break(_) => Err(InterpretorError::ForbidenBreak),
         }
     }
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedPrimary, InterpretorError> {

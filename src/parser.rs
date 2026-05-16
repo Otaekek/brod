@@ -108,6 +108,7 @@ pub enum Statement {
     Block(Vec<Declaration>),
     IfStatement(Vec<(ExprID, Statement)>, Option<StatementID>),
     Whileloop(ExprID, StatementID),
+    Break(LocatedToken),
 }
 
 #[derive(Clone)]
@@ -154,10 +155,10 @@ pub trait _ASTVisitor {
     fn visit_unary(&mut self, arena: &[Expr], unary: &Unary);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ASTError {
     Eof,
-    TokenError(LocatedToken),
+    TokenError(LocatedToken, Vec<SimpleToken>),
     BinaryNoLeft(LocatedToken),
     RValueAssignment(ExprID),
 }
@@ -177,10 +178,10 @@ impl ASTError {
     fn format_error(&self, source: &str, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ASTError::Eof => write!(f, "{}", "Unexpected End Of File"),
-            ASTError::TokenError(located_token) => write!(
+            ASTError::TokenError(located_token, expected) => write!(
                 f,
-                "Unexpected token \"{}\" at {}:{}:{}",
-                located_token.token, source, located_token.line, located_token.row
+                "Unexpected token \"{}\" at {}:{}:{}, expected {:#?}",
+                located_token.token, source, located_token.line, located_token.row, expected
             ),
             ASTError::BinaryNoLeft(located_token) => write!(
                 f,
@@ -261,9 +262,9 @@ impl ASTBuilder {
             )
         }
     }
-    fn error_token(&self, token_offset: i64) -> ASTError {
+    fn error_token(&self, token_offset: i64, expected: Vec<SimpleToken>) -> ASTError {
         let token = self.tokens.tokens[(self.current_index as i64 + token_offset) as usize].clone();
-        ASTError::TokenError(token)
+        ASTError::TokenError(token, expected)
     }
     fn declaration(&mut self) -> Result<Declaration, ASTError> {
         while let Some(_) = self.my_match(&[SimpleToken::SemiColon]) {}
@@ -284,7 +285,9 @@ impl ASTBuilder {
         let s = if self.check(&Token::Single(SimpleToken::KeyWord(
             lexer::KeyWordType::Print,
         ))) {
-            self.print()
+            let r = self.print()?;
+            self.consume(SimpleToken::SemiColon)?;
+            Ok(r)
         } else if self.my_match(&[SimpleToken::LeftBrace]).is_some() {
             let mut declarations = vec![];
             loop {
@@ -295,9 +298,6 @@ impl ASTBuilder {
                 declarations.push(declaration);
                 if self.is_last() {
                     return Err(ASTError::Eof);
-                }
-                if self.my_match(&[SimpleToken::RightBrace]).is_some() {
-                    return Ok(Statement::Block(declarations));
                 }
             }
         } else if self
@@ -310,12 +310,18 @@ impl ASTBuilder {
             .is_some()
         {
             self.whilestmt()
+        } else if self
+            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Break)])
+            .is_some()
+        {
+            self.consume(SimpleToken::SemiColon)?;
+            Ok(Statement::Break(self.current(-1)))
         } else {
             let expression = self.expression()?;
+            self.consume(SimpleToken::SemiColon)?;
             Ok(Statement::ExprStatement(expression))
         };
 
-        self.consume(SimpleToken::SemiColon)?;
         s
     }
 
@@ -363,7 +369,8 @@ impl ASTBuilder {
         let right = self.expression()?;
         match ident {
             Token::Identifier(s) => return Ok(Declaration::VarDecl(s, right)),
-            _ => Err(self.error_token(-3)),
+            // TODO: Expected identifier
+            _ => Err(self.error_token(-3, vec![])),
         }
     }
 
@@ -545,7 +552,7 @@ impl ASTBuilder {
             match p {
                 SimpleToken::Bang => Ok(self.emit(Expr::Unary(Unary::Not(expr)))),
                 SimpleToken::Minus => Ok(self.emit(Expr::Unary(Unary::Minus(expr)))),
-                _ => return Err(self.error_token(-1)),
+                _ => return Err(self.error_token(-1, vec![SimpleToken::Bang, SimpleToken::Minus])),
             }
         } else {
             self.primary()
@@ -564,9 +571,23 @@ impl ASTBuilder {
                     lexer::KeyWordType::False => Ok(self.emit_primary(Primary::Boolean(false), 0)),
                     lexer::KeyWordType::True => Ok(self.emit_primary(Primary::Boolean(true), 0)),
                     lexer::KeyWordType::Nil => Ok(self.emit_primary(Primary::Nil, 0)),
-                    _ => Err(self.error_token(-1)),
+                    _ => Err(self.error_token(
+                        -1,
+                        vec![
+                            SimpleToken::KeyWord(lexer::KeyWordType::True),
+                            SimpleToken::KeyWord(lexer::KeyWordType::False),
+                            SimpleToken::KeyWord(lexer::KeyWordType::Nil),
+                        ],
+                    )),
                 },
-                _ => Err(self.error_token(-1)),
+                _ => Err(self.error_token(
+                    -1,
+                    vec![
+                        SimpleToken::KeyWord(lexer::KeyWordType::True),
+                        SimpleToken::KeyWord(lexer::KeyWordType::False),
+                        SimpleToken::KeyWord(lexer::KeyWordType::Nil),
+                    ],
+                )),
             },
             Token::Identifier(s) => Ok(self.emit_primary(Primary::Identifier(s), 0)),
             Token::StringLitteral(s) => Ok(self.emit_primary(Primary::String(s), 0)),
@@ -604,7 +625,7 @@ impl ASTBuilder {
             if self.current_index == self.tokens.tokens.len() {
                 return Err(ASTError::Eof);
             }
-            Err(self.error_token(0))
+            Err(self.error_token(0, vec![token]))
         }
     }
 

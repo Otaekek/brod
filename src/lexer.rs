@@ -82,6 +82,7 @@ pub enum KeyWordType {
     If,
     Elif,
     Enum,
+    Break,
 }
 
 static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
@@ -102,6 +103,7 @@ static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
     m.insert("if", KeyWordType::If);
     m.insert("elif", KeyWordType::Elif);
     m.insert("enum", KeyWordType::Enum);
+    m.insert("break", KeyWordType::Break);
     m
 });
 #[derive(Clone, Debug, PartialEq)]
