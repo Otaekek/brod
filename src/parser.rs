@@ -17,7 +17,9 @@ pub enum Operator {
     Star,
 }
 pub type ExprID = usize;
+pub type StatementID = usize;
 pub type TokenID = usize;
+
 #[derive(Copy, Clone, Debug, enum_display::EnumDisplay)]
 pub enum Unary {
     Not(ExprID),
@@ -91,21 +93,24 @@ pub enum Statement {
     ExprStatement(ExprID),
     PrintStatement(Vec<ExprID>),
     Block(Vec<Declaration>),
-    IfStatement(ExprID, Vec<Statement>),
+    IfStatement(Vec<(ExprID, Statement)>, Option<StatementID>),
+    Whileloop(ExprID, StatementID),
 }
 
 #[derive(Clone)]
 pub struct AST {
-    pub tokens: TokenVec,
-    pub arena: Vec<Expr>,
+    pub _tokens: TokenVec,
+    pub expr_arena: Vec<Expr>,
+    pub statement_arena: Vec<Statement>,
     pub roots: Vec<Declaration>,
 }
 
 impl AST {
     pub fn new(tokens: TokenVec) -> Self {
         Self {
-            tokens: tokens,
-            arena: Vec::with_capacity(4096),
+            _tokens: tokens,
+            expr_arena: Vec::with_capacity(4096),
+            statement_arena: Vec::with_capacity(4096),
             roots: vec![],
         }
     }
@@ -206,16 +211,20 @@ pub struct ASTBuilder {
 /// binary error production
 impl ASTBuilder {
     fn emit(&mut self, expr: Expr) -> ExprID {
-        self.ast.arena.push(expr);
-        self.ast.arena.len() - 1
+        self.ast.expr_arena.push(expr);
+        self.ast.expr_arena.len() - 1
+    }
+    fn emit_statment(&mut self, statement: Statement) -> StatementID {
+        self.ast.statement_arena.push(statement);
+        self.ast.statement_arena.len() - 1
     }
     fn emit_primary(&mut self, primary: Primary, offset: i64) -> ExprID {
-        self.ast.arena.push(Expr::Terminal(LocatedPrimary {
+        self.ast.expr_arena.push(Expr::Terminal(LocatedPrimary {
             inner: primary,
             token_start: self.current_index + offset as usize,
             token_end: self.current_index + offset as usize,
         }));
-        self.ast.arena.len() - 1
+        self.ast.expr_arena.len() - 1
     }
 
     fn current(&self, offset: i64) -> LocatedToken {
@@ -288,13 +297,12 @@ impl ASTBuilder {
             .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::If)])
             .is_some()
         {
-            self.consume(SimpleToken::LeftParen)?;
-            let expr = self.expression()?;
-            self.consume(SimpleToken::RightParen)?;
-
-            let stmt = self.statement()?;
-
-            Ok(Statement::IfStatement(expr, vec![stmt]))
+            self.ifstmt()
+        } else if self
+            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::While)])
+            .is_some()
+        {
+            self.whilestmt()
         } else {
             let expression = self.expression()?;
             Ok(Statement::ExprStatement(expression))
@@ -302,6 +310,43 @@ impl ASTBuilder {
 
         self.consume(SimpleToken::SemiColon)?;
         s
+    }
+
+    fn whilestmt(&mut self) -> Result<Statement, ASTError> {
+        self.consume(SimpleToken::LeftParen)?;
+        let expr = self.expression()?;
+        self.consume(SimpleToken::RightParen)?;
+        let stmt = self.statement()?;
+        Ok(Statement::Whileloop(expr, self.emit_statment(stmt)))
+    }
+
+    fn ifstmt(&mut self) -> Result<Statement, ASTError> {
+        self.consume(SimpleToken::LeftParen)?;
+        let mut expr = vec![self.expression()?];
+        self.consume(SimpleToken::RightParen)?;
+        let mut else_stmt = None;
+        let mut stmt = vec![self.statement()?];
+        while self
+            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Elif)])
+            .is_some()
+        {
+            self.consume(SimpleToken::LeftParen)?;
+            expr.push(self.expression()?);
+            self.consume(SimpleToken::RightParen)?;
+
+            stmt.push(self.statement()?);
+        }
+        if self
+            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Else)])
+            .is_some()
+        {
+            let stmt = self.statement()?;
+            else_stmt = Some(self.emit_statment(stmt));
+        }
+        Ok(Statement::IfStatement(
+            expr.into_iter().zip(stmt.into_iter()).collect(),
+            else_stmt,
+        ))
     }
 
     fn vardecl(&mut self) -> Result<Declaration, ASTError> {

@@ -28,7 +28,7 @@ pub enum SimpleToken {
     KeyWord(KeyWordType),
     And,
     Or,
-    Newline,
+    // Newline,
 }
 
 impl Display for SimpleToken {
@@ -59,7 +59,7 @@ impl Display for SimpleToken {
             // SimpleToken::Comment => unreachable!(),
             SimpleToken::Colon => ":",
             SimpleToken::Question => "?",
-            SimpleToken::Newline => "newline",
+            // SimpleToken::Newline => "newline",
         };
         write!(f, "{}", s)
     }
@@ -80,6 +80,7 @@ pub enum KeyWordType {
     Var,
     While,
     If,
+    Elif,
     Enum,
 }
 
@@ -99,6 +100,7 @@ static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
     m.insert("var", KeyWordType::Var);
     m.insert("while", KeyWordType::While);
     m.insert("if", KeyWordType::If);
+    m.insert("elif", KeyWordType::Elif);
     m.insert("enum", KeyWordType::Enum);
     m
 });

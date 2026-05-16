@@ -1,9 +1,10 @@
-use std::{collections::HashMap, process::Termination};
+use std::collections::HashMap;
 
 use crate::parser::{
     Declaration, ExprID, LocatedPrimary, Operator, Primary, Statement, Unary, AST,
 };
 
+#[derive(Debug)]
 pub struct Environment {
     stack: Vec<HashMap<String, LocatedPrimary>>,
 }
@@ -19,7 +20,7 @@ impl Environment {
         let last = self.stack.len() - 1;
         self.stack[last].insert(name, value.clone());
     }
-    pub fn check(&mut self, name: &String) -> bool {
+    pub fn _check(&mut self, name: &String) -> bool {
         let last = self.stack.len();
         for i in 0..self.stack.len() {
             let r = self.stack[last - i].get(name);
@@ -29,6 +30,24 @@ impl Environment {
         }
         false
     }
+    pub fn assign(
+        &mut self,
+        name: &String,
+        ident: &LocatedPrimary,
+    ) -> Result<(), InterpretorError> {
+        let last = self.stack.len();
+        for i in 0..self.stack.len() {
+            let r = self.stack[last - i - 1].get(name);
+            if r.is_some() {
+                let m = self.stack[last - i - 1].get_mut(name).unwrap();
+                *m = ident.clone();
+                return Ok(());
+            }
+        }
+
+        Err(InterpretorError::UnDeclaredIdentifier(ident.clone()))
+    }
+
     pub fn get(
         &self,
         name: &String,
@@ -51,6 +70,7 @@ impl Environment {
         self.stack.pop();
     }
 }
+#[derive(Debug)]
 pub struct Interpreter {
     environment: Environment,
 }
@@ -243,8 +263,7 @@ impl Interpreter {
             Declaration::Empty => Ok(Primary::Nil),
             Declaration::Assignment(ident, expr_id) => {
                 let value = self.eval(ast, expr_id)?;
-                let _ = self.environment.get(&ident, &value)?;
-                self.environment.add(ident, value.clone());
+                self.environment.assign(&ident, &value)?;
                 Ok(value.inner)
             }
         }
@@ -277,18 +296,40 @@ impl Interpreter {
                 self.environment.pop();
                 Ok(Primary::Nil)
             }
-            Statement::IfStatement(expr_id, statements) => {
-                let expr = self.eval(ast, expr_id)?;
-                match expr.inner {
-                    Primary::Boolean(true) => self.eval_statement(ast, statements[0].clone()),
-                    Primary::Boolean(false) => Ok(Primary::Nil),
-                    _ => Err(InterpretorError::FobbiddenTernay),
+            Statement::IfStatement(ifelses, else_stmt) => {
+                for (expr, stmt) in ifelses.iter() {
+                    let expr = self.eval(ast, *expr)?;
+                    match expr.inner {
+                        Primary::Boolean(true) => return self.eval_statement(ast, stmt.clone()),
+                        Primary::Boolean(false) => {}
+
+                        _ => return Err(InterpretorError::FobbiddenTernay),
+                    };
                 }
+                if let Some(stmt) = else_stmt {
+                    let stmt = ast.statement_arena[stmt].clone();
+                    return self.eval_statement(ast, stmt);
+                }
+
+                Ok(Primary::Nil)
+            }
+            Statement::Whileloop(expr_id, stmt_id) => {
+                let stmt = ast.statement_arena[stmt_id].clone();
+                loop {
+                    let r = self.eval(ast, expr_id)?;
+                    match r.inner {
+                        Primary::Boolean(true) => {}
+                        Primary::Boolean(false) => break,
+                        _ => return Err(InterpretorError::FobbiddenTernay),
+                    };
+                    self.eval_statement(ast, stmt.clone())?;
+                }
+                Ok(Primary::Nil)
             }
         }
     }
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedPrimary, InterpretorError> {
-        match &ast.arena[root] {
+        match &ast.expr_arena[root] {
             crate::parser::Expr::Terminal(terminal) => match &terminal.inner {
                 Primary::Identifier(v) => self.environment.get(v, terminal),
                 _ => return Ok(terminal.clone()),
