@@ -75,8 +75,9 @@ pub struct Interpreter {
     environment: Environment,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InterpretorError {
+    UnexpectedType(LocatedPrimary, String),
     ForbiddenUnaryOperation(Unary, LocatedPrimary),
     ForbiddenBinaryOperation(Operator, LocatedPrimary, LocatedPrimary),
     FobbiddenTernay,
@@ -110,6 +111,13 @@ impl InterpretorError {
             ),
             InterpretorError::UnDeclaredIdentifier(v) => {
                 write!(f, "Undeclared Variable {}", v.inner)
+            }
+            InterpretorError::UnexpectedType(located_primary, expected) => {
+                write!(
+                    f,
+                    "Invalid type: {}, Expected : {}",
+                    located_primary.inner, expected
+                )
             }
         }
     }
@@ -303,7 +311,12 @@ impl Interpreter {
                         Primary::Boolean(true) => return self.eval_statement(ast, stmt.clone()),
                         Primary::Boolean(false) => {}
 
-                        _ => return Err(InterpretorError::FobbiddenTernay),
+                        _ => {
+                            return Err(InterpretorError::UnexpectedType(
+                                expr,
+                                "Boolean".to_string(),
+                            ))
+                        }
                     };
                 }
                 if let Some(stmt) = else_stmt {
@@ -320,7 +333,9 @@ impl Interpreter {
                     match r.inner {
                         Primary::Boolean(true) => {}
                         Primary::Boolean(false) => break,
-                        _ => return Err(InterpretorError::FobbiddenTernay),
+                        _ => {
+                            return Err(InterpretorError::UnexpectedType(r, "Boolean".to_string()))
+                        }
                     };
                     self.eval_statement(ast, stmt.clone())?;
                 }
