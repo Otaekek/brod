@@ -354,6 +354,22 @@ impl Interpreter {
                     _ => Err(InterpretorError::FobbiddenTernay),
                 }
             }
+            crate::parser::Expr::LogicalAnd(logical_and) => {
+                let left = self.eval(ast, logical_and.left)?;
+                match &left.inner {
+                    Primary::Boolean(false) => return Ok(left),
+                    Primary::Boolean(true) => return self.eval(ast, logical_and.right),
+                    _ => return Err(InterpretorError::FobbiddenTernay),
+                }
+            }
+            crate::parser::Expr::LogicalOr(logical_or) => {
+                let left = self.eval(ast, logical_or.left)?;
+                match &left.inner {
+                    Primary::Boolean(true) => return Ok(left),
+                    Primary::Boolean(false) => return self.eval(ast, logical_or.right),
+                    _ => return Err(InterpretorError::FobbiddenTernay),
+                }
+            }
         }
     }
 }

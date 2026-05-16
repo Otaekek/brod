@@ -74,11 +74,24 @@ pub struct Ternary {
     pub right: ExprID,
 }
 #[derive(Clone, Debug)]
+pub struct LogicalAnd {
+    pub left: ExprID,
+    pub right: ExprID,
+}
+#[derive(Clone, Debug)]
+pub struct LogicalOr {
+    pub left: ExprID,
+    pub right: ExprID,
+}
+
+#[derive(Clone, Debug)]
 pub enum Expr {
     Terminal(LocatedPrimary),
     Unary(Unary),
     Binary(Binary),
     Ternary(Ternary),
+    LogicalAnd(LogicalAnd),
+    LogicalOr(LogicalOr),
 }
 
 #[derive(Clone, Debug)]
@@ -397,7 +410,7 @@ impl ASTBuilder {
     }
 
     fn ternary(&mut self) -> Result<ExprID, ASTError> {
-        let left = self.equality()?;
+        let left = self.logical_and()?;
 
         if let Some(_) = self.my_match(&[SimpleToken::Question]) {
             let middle = self.expression()?;
@@ -411,6 +424,29 @@ impl ASTBuilder {
         }
         Ok(left)
     }
+
+    fn logical_and(&mut self) -> Result<ExprID, ASTError> {
+        let mut left = self.logical_or()?;
+
+        while self.my_match(&[SimpleToken::And]).is_some() {
+            let right = self.logical_and()?;
+
+            left = self.emit(Expr::LogicalAnd(LogicalAnd { left, right }));
+        }
+        Ok(left)
+    }
+
+    fn logical_or(&mut self) -> Result<ExprID, ASTError> {
+        let mut left = self.equality()?;
+
+        while self.my_match(&[SimpleToken::Or]).is_some() {
+            let right = self.logical_or()?;
+
+            left = self.emit(Expr::LogicalOr(LogicalOr { left, right }));
+        }
+        Ok(left)
+    }
+
     fn equality(&mut self) -> Result<ExprID, ASTError> {
         let mut left = self.comparison()?;
         while let Some(simple_token) =
