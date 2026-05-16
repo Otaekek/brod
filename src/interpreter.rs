@@ -33,19 +33,19 @@ impl Environment {
     pub fn assign(
         &mut self,
         name: &String,
-        ident: &LocatedPrimary,
+        value: &LocatedPrimary,
     ) -> Result<(), InterpretorError> {
         let last = self.stack.len();
         for i in 0..self.stack.len() {
             let r = self.stack[last - i - 1].get(name);
             if r.is_some() {
                 let m = self.stack[last - i - 1].get_mut(name).unwrap();
-                *m = ident.clone();
+                *m = value.clone();
                 return Ok(());
             }
         }
 
-        Err(InterpretorError::UnDeclaredIdentifier(ident.clone()))
+        Err(InterpretorError::UnDeclaredIdentifier(value.clone()))
     }
 
     pub fn get(
@@ -269,11 +269,6 @@ impl Interpreter {
                 Ok(value.inner)
             }
             Declaration::Empty => Ok(Primary::Nil),
-            Declaration::Assignment(ident, expr_id) => {
-                let value = self.eval(ast, expr_id)?;
-                self.environment.assign(&ident, &value)?;
-                Ok(value.inner)
-            }
         }
     }
     pub fn eval_statement(
@@ -384,6 +379,11 @@ impl Interpreter {
                     Primary::Boolean(false) => return self.eval(ast, logical_or.right),
                     _ => return Err(InterpretorError::FobbiddenTernay),
                 }
+            }
+            crate::parser::Expr::Assignment(s, expr) => {
+                let expr = self.eval(ast, *expr)?;
+                self.environment.assign(s, &expr)?;
+                Ok(expr)
             }
         }
     }

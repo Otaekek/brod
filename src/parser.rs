@@ -92,13 +92,13 @@ pub enum Expr {
     Ternary(Ternary),
     LogicalAnd(LogicalAnd),
     LogicalOr(LogicalOr),
+    Assignment(String, ExprID),
 }
 
 #[derive(Clone, Debug)]
 pub enum Declaration {
     Statement(Statement),
     VarDecl(String, ExprID),
-    Assignment(String, ExprID),
     Empty,
 }
 #[derive(Clone, Debug)]
@@ -159,6 +159,7 @@ pub enum ASTError {
     Eof,
     TokenError(LocatedToken),
     BinaryNoLeft(LocatedToken),
+    RValueAssignment(ExprID),
 }
 
 struct ErrorDisplay<'a> {
@@ -186,6 +187,9 @@ impl ASTError {
                 "Unexpected token \"{}\" at {}:{}:{}, This Token should have a left and right side",
                 located_token.token, source, located_token.line, located_token.row
             ),
+            ASTError::RValueAssignment(_) => {
+                write!(f, "Unexpected token assignment should have a lvalue",)
+            }
         }
     }
 
@@ -246,7 +250,7 @@ impl ASTBuilder {
     fn is_last(&self) -> bool {
         self.current_index == self.tokens.tokens.len()
     }
-    fn peek_next(&self) -> Option<Token> {
+    fn _peek_next(&self) -> Option<Token> {
         if self.is_last() {
             None
         } else {
@@ -269,16 +273,6 @@ impl ASTBuilder {
             == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Var))
         {
             let d = self.vardecl()?;
-            self.consume(SimpleToken::SemiColon)?;
-            Ok(d)
-        } else if self.peek_next() == Some(Token::Single(SimpleToken::Equal)) {
-            let ident = self.advance()?.clone();
-            self.consume(SimpleToken::Equal)?;
-            let right = self.expression()?;
-            let d = match ident {
-                Token::Identifier(s) => return Ok(Declaration::Assignment(s.clone(), right)),
-                _ => Err(self.error_token(-3)),
-            }?;
             self.consume(SimpleToken::SemiColon)?;
             Ok(d)
         } else {
@@ -406,9 +400,27 @@ impl ASTBuilder {
         ]) {
             return Err(ASTError::BinaryNoLeft(self.current(-1)));
         }
-        self.ternary()
+        self.assignment()
     }
 
+    fn assignment(&mut self) -> Result<ExprID, ASTError> {
+        let left = self.logical_and()?;
+        if self.my_match(&[SimpleToken::Equal]).is_some() {
+            let right = self.expression()?;
+            match &self.ast.expr_arena[left] {
+                Expr::Terminal(located_primary) => match &located_primary.inner {
+                    Primary::Identifier(s) => {
+                        return Ok(self.emit(Expr::Assignment(s.clone(), right)))
+                    }
+                    _ => return Err(ASTError::RValueAssignment(left)),
+                },
+                // No chaining assignment for now
+                // Expr::Assignment(s, r) => todo!(),
+                _ => return Err(ASTError::RValueAssignment(left)),
+            }
+        }
+        Ok(left)
+    }
     fn ternary(&mut self) -> Result<ExprID, ASTError> {
         let left = self.logical_and()?;
 
