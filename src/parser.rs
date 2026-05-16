@@ -109,6 +109,7 @@ pub enum Statement {
     IfStatement(Vec<(ExprID, Statement)>, Option<StatementID>),
     Whileloop(ExprID, StatementID),
     Break(LocatedToken),
+    Continue(LocatedToken),
 }
 
 #[derive(Clone)]
@@ -316,6 +317,12 @@ impl ASTBuilder {
         {
             self.consume(SimpleToken::SemiColon)?;
             Ok(Statement::Break(self.current(-1)))
+        } else if self
+            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Continue)])
+            .is_some()
+        {
+            self.consume(SimpleToken::SemiColon)?;
+            Ok(Statement::Continue(self.current(-1)))
         } else {
             let expression = self.expression()?;
             self.consume(SimpleToken::SemiColon)?;

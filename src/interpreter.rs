@@ -82,6 +82,7 @@ pub enum InterpretorError {
     ForbiddenBinaryOperation(Operator, LocatedPrimary, LocatedPrimary),
     FobbiddenTernay,
     ForbidenBreak,
+    ForbidenContinue,
     UnDeclaredIdentifier(LocatedPrimary),
 }
 impl InterpretorError {
@@ -121,6 +122,9 @@ impl InterpretorError {
                 )
             }
             InterpretorError::ForbidenBreak => write!(f, "{}", "Break should be in while loop"),
+            InterpretorError::ForbidenContinue => {
+                write!(f, "{}", "Continue should be in while loop")
+            }
         }
     }
     pub fn get_formated_error(&self, ast: &AST, source: &str) -> String {
@@ -330,12 +334,14 @@ impl Interpreter {
                     };
                     match self.eval_statement(ast, stmt.clone()) {
                         Err(InterpretorError::ForbidenBreak) => break,
+                        Err(InterpretorError::ForbidenContinue) => continue,
                         _ => {}
                     };
                 }
                 Ok(Primary::Nil)
             }
             Statement::Break(_) => Err(InterpretorError::ForbidenBreak),
+            Statement::Continue(_) => Err(InterpretorError::ForbidenContinue),
         }
     }
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedPrimary, InterpretorError> {
