@@ -91,7 +91,7 @@ static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
     m.insert("class", KeyWordType::Class);
     m.insert("else", KeyWordType::Else);
     m.insert("false", KeyWordType::False);
-    m.insert("fun", KeyWordType::Fun);
+    m.insert("fn", KeyWordType::Fun);
     m.insert("for", KeyWordType::For);
     m.insert("nil", KeyWordType::Nil);
     m.insert("print", KeyWordType::Print);

@@ -1,7 +1,8 @@
 use crate::{
     foreign_function::init_foreign_functions,
     parser::{
-        Declaration, ExprID, FunctionCall, LocatedPrimary, Operator, Primary, Statement, Unary, AST,
+        Declaration, ExprID, FunctionCall, FunctionDefinition, LocatedPrimary, Operator, Primary,
+        Statement, Unary, AST,
     },
 };
 use std::collections::HashMap;
@@ -151,6 +152,7 @@ impl Environment {
 #[derive(Debug)]
 pub struct Interpreter {
     environment: Environment,
+    head: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -241,11 +243,22 @@ impl<'a> std::fmt::Display for ErrorDisplay<'a> {
 }
 
 impl Interpreter {
+    pub fn declare_function(&mut self, definition: FunctionDefinition) {
+        self.environment.functions.insert(
+            definition.name,
+            Function::Resident(ResidentFunction {
+                arguments: definition.arguments,
+                statement: definition.statement,
+            }),
+        );
+    }
+
     pub fn bind_forein(&mut self, name: &str, function: ForeignFunction) {
         self.environment
             .functions
             .insert(name.to_string(), Function::Foreign(function));
     }
+
     fn function_call(
         &mut self,
         ast: &AST,
@@ -274,6 +287,7 @@ impl Interpreter {
     pub fn new() -> Self {
         let mut ret = Self {
             environment: Environment::new(),
+            head: 0,
         };
         init_foreign_functions(&mut ret);
         ret
@@ -391,6 +405,10 @@ impl Interpreter {
                 Ok(value.inner)
             }
             Declaration::Empty => Ok(Primary::Nil),
+            Declaration::FunctionDefinition(function_definition) => {
+                self.declare_function(function_definition);
+                Ok(Primary::Nil)
+            }
         }
     }
     pub fn eval_statement(
@@ -523,6 +541,16 @@ impl Interpreter {
 pub fn eval(ast: AST, interpreter: &mut Interpreter) -> Result<Primary, InterpretorError> {
     let mut last = Primary::Nil;
     for root in &ast.roots {
+        let ret = interpreter.eval_declaration(&ast, root.clone())?;
+        last = ret;
+    }
+    Ok(last)
+}
+pub fn eval_last(ast: AST, interpreter: &mut Interpreter) -> Result<Primary, InterpretorError> {
+    let mut last = Primary::Nil;
+    while interpreter.head < ast.roots.len() {
+        let root = &ast.roots[interpreter.head];
+        interpreter.head += 1;
         let ret = interpreter.eval_declaration(&ast, root.clone())?;
         last = ret;
     }

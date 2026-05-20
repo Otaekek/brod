@@ -25,6 +25,7 @@ pub enum Unary {
     Not(ExprID),
     Minus(ExprID),
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocatedPrimary {
     pub inner: Primary,
@@ -92,6 +93,13 @@ pub struct FunctionCall {
 }
 
 #[derive(Clone, Debug)]
+pub struct FunctionDefinition {
+    pub name: String,
+    pub arguments: Vec<String>,
+    pub statement: Statement,
+}
+
+#[derive(Clone, Debug)]
 pub enum Expr {
     Terminal(LocatedPrimary),
     Unary(Unary),
@@ -107,8 +115,10 @@ pub enum Expr {
 pub enum Declaration {
     Statement(Statement),
     VarDecl(String, ExprID),
+    FunctionDefinition(FunctionDefinition),
     Empty,
 }
+
 #[derive(Clone, Debug)]
 pub enum Statement {
     ExprStatement(ExprID),
@@ -120,7 +130,7 @@ pub enum Statement {
     Continue(LocatedToken),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct AST {
     pub _tokens: TokenVec,
     pub expr_arena: Vec<Expr>,
@@ -220,10 +230,10 @@ impl ASTError {
     }
 }
 
-pub struct ASTBuilder {
+pub struct ASTBuilder<'a> {
     current_index: usize,
     tokens: TokenVec,
-    ast: AST,
+    ast: &'a mut AST,
 }
 
 /// Statement → expression | print | assignment ;
@@ -242,7 +252,7 @@ pub struct ASTBuilder {
 ///
 /// Error Productions :
 /// binary error production
-impl ASTBuilder {
+impl<'a> ASTBuilder<'a> {
     fn emit(&mut self, expr: Expr) -> ExprID {
         self.ast.expr_arena.push(expr);
         self.ast.expr_arena.len() - 1
@@ -291,9 +301,58 @@ impl ASTBuilder {
             let d = self.vardecl()?;
             self.consume(SimpleToken::SemiColon)?;
             Ok(d)
+        } else if self.current(0).token
+            == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Fun))
+        {
+            let d = self.function_def()?;
+            Ok(d)
         } else {
             let s = self.statement()?;
             Ok(Declaration::Statement(s))
+        }
+    }
+    fn function_def(&mut self) -> Result<Declaration, ASTError> {
+        self.consume(SimpleToken::KeyWord(lexer::KeyWordType::Fun))?;
+        let name = self.get_identifier_string()?;
+        self.consume(SimpleToken::LeftParen)?;
+        let mut arguments = vec![];
+        while !self.my_match(&[SimpleToken::RightParen]).is_some() {
+            let argument_name = self.get_identifier_string()?;
+            arguments.push(argument_name);
+            self.consume(SimpleToken::Comma)?;
+        }
+
+        let block = self.block()?;
+        Ok(Declaration::FunctionDefinition(FunctionDefinition {
+            name,
+            arguments,
+            statement: block,
+        }))
+    }
+    fn get_identifier_string(&mut self) -> Result<String, ASTError> {
+        let primary = self.primary()?;
+        let primary = &self.ast.expr_arena[primary];
+        match primary {
+            Expr::Terminal(located_primary) => match &located_primary.inner {
+                Primary::Identifier(s) => Ok(s.clone()),
+                _ => return Err(ASTError::Eof),
+            },
+            _ => return Err(ASTError::Eof),
+        }
+    }
+
+    fn block(&mut self) -> Result<Statement, ASTError> {
+        self.consume(SimpleToken::LeftBrace)?;
+        let mut declarations = vec![];
+        loop {
+            if self.my_match(&[SimpleToken::RightBrace]).is_some() {
+                return Ok(Statement::Block(declarations));
+            }
+            let declaration = self.declaration()?;
+            declarations.push(declaration);
+            if self.is_last() {
+                return Err(ASTError::Eof);
+            }
         }
     }
     fn statement(&mut self) -> Result<Statement, ASTError> {
@@ -303,18 +362,8 @@ impl ASTBuilder {
             let r = self.print()?;
             self.consume(SimpleToken::SemiColon)?;
             Ok(r)
-        } else if self.my_match(&[SimpleToken::LeftBrace]).is_some() {
-            let mut declarations = vec![];
-            loop {
-                if self.my_match(&[SimpleToken::RightBrace]).is_some() {
-                    return Ok(Statement::Block(declarations));
-                }
-                let declaration = self.declaration()?;
-                declarations.push(declaration);
-                if self.is_last() {
-                    return Err(ASTError::Eof);
-                }
-            }
+        } else if self.check(&Token::Single(SimpleToken::LeftBrace)) {
+            self.block()
         } else if self
             .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::If)])
             .is_some()
@@ -702,12 +751,12 @@ impl ASTBuilder {
         None
     }
 
-    pub fn parse(input: TokenVec) -> (AST, Vec<ASTError>) {
+    pub fn parse(input: TokenVec, ast: &'a mut AST) -> ((), Vec<ASTError>) {
         let mut errors = vec![];
         let mut builder = Self {
             current_index: 0,
             tokens: input.clone(),
-            ast: AST::new(input.clone()),
+            ast,
         };
         let mut recovery_mode = false;
         while builder.current_index.clone() < builder.tokens.tokens.len() {
@@ -716,7 +765,7 @@ impl ASTBuilder {
                 if token.is_err() {
                     // Only possible error here is end of file
                     errors.push(ASTError::Eof);
-                    return (builder.ast, errors);
+                    return ((), errors);
                 }
                 if token.unwrap() == &Token::Single(SimpleToken::SemiColon) {
                     recovery_mode = false;
@@ -732,6 +781,6 @@ impl ASTBuilder {
                 }
             }
         }
-        (builder.ast, errors)
+        ((), errors)
     }
 }

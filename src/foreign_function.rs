@@ -24,8 +24,14 @@ pub fn abs(input: &[LocatedPrimary], _env: &mut Environment) -> Result<Primary, 
     }
 }
 
+pub fn env(_: &[LocatedPrimary], env: &mut Environment) -> Result<Primary, InterpretorError> {
+    println!("{:#?}", env);
+    Ok(Primary::Nil)
+}
+
 pub fn init_foreign_functions(interpreter: &mut Interpreter) {
     interpreter.bind_forein("sin", ForeignFunction::new(sin, 1));
     interpreter.bind_forein("cos", ForeignFunction::new(cos, 1));
     interpreter.bind_forein("abs", ForeignFunction::new(abs, 1));
+    interpreter.bind_forein("env", ForeignFunction::new(env, 0));
 }
