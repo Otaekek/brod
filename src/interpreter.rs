@@ -45,6 +45,9 @@ impl ResidentFunction {
         interpreter: &mut Interpreter,
         arguments: &[LocatedPrimary],
     ) -> Result<Primary, InterpretorError> {
+        if arguments.len() != self.arguments.len() {
+            return Err(InterpretorError::InvalidSignature);
+        }
         interpreter.environment.push();
 
         for (name, value) in self.arguments.iter().zip(arguments.iter()) {
@@ -70,13 +73,22 @@ impl Function {
         arguments: &[LocatedPrimary],
     ) -> Result<LocatedPrimary, InterpretorError> {
         // TODO: Locate callee
-        match self {
-            Function::Foreign(foreign_function) => foreign_function
-                .call(arguments, &mut interpreter.environment)
-                .map(|x| x.located(0, 0)),
-            Function::Resident(resident_function) => resident_function
-                .call(ast, interpreter, arguments)
-                .map(|x| x.located(0, 0)),
+        let ret = {
+            match self {
+                Function::Foreign(foreign_function) => foreign_function
+                    .call(arguments, &mut interpreter.environment)
+                    .map(|x| x.located(0, 0)),
+                Function::Resident(resident_function) => resident_function
+                    .call(ast, interpreter, arguments)
+                    .map(|x| x.located(0, 0)),
+            }
+        };
+        match ret {
+            Err(err) => match err {
+                InterpretorError::Return(ret) => Ok(ret),
+                x => Err(x),
+            },
+            x => x,
         }
     }
 }
@@ -164,8 +176,9 @@ pub enum InterpretorError {
     ForbidenBreak,
     NotCallable(LocatedPrimary),
     UnknownFunction(String),
-    InvalidSignature(LocatedPrimary),
+    InvalidSignature,
     ForbidenContinue,
+    Return(LocatedPrimary),
     UnDeclaredIdentifier(LocatedPrimary),
 }
 impl InterpretorError {
@@ -211,11 +224,14 @@ impl InterpretorError {
             InterpretorError::NotCallable(located_primary) => {
                 write!(f, "{:#?} is not callable", located_primary)
             }
-            InterpretorError::InvalidSignature(located_primary) => {
-                write!(f, "{:#?} invalid number of arguments", located_primary)
+            InterpretorError::InvalidSignature => {
+                write!(f, "invalid number of arguments")
             }
             InterpretorError::UnknownFunction(name) => {
                 write!(f, "unknown function {}", name)
+            }
+            InterpretorError::Return(_) => {
+                write!(f, "{}", "invalid return: return should be in function")
             }
         }
     }
@@ -432,12 +448,13 @@ impl Interpreter {
                 Ok(Primary::Nil)
             }
             Statement::Block(declarations) => {
+                let mut last = Primary::Nil;
                 self.environment.push();
                 for declaration in declarations {
-                    self.eval_declaration(ast, declaration)?;
+                    last = self.eval_declaration(ast, declaration)?;
                 }
                 self.environment.pop();
-                Ok(Primary::Nil)
+                Ok(last)
             }
             Statement::IfStatement(ifelses, else_stmt) => {
                 for (expr, stmt) in ifelses.iter() {
@@ -482,6 +499,14 @@ impl Interpreter {
             }
             Statement::Break(_) => Err(InterpretorError::ForbidenBreak),
             Statement::Continue(_) => Err(InterpretorError::ForbidenContinue),
+            Statement::Return(item) => {
+                let item = if let Some(item) = item {
+                    self.eval(ast, item)?
+                } else {
+                    Primary::Nil.located(0, 0)
+                };
+                Err(InterpretorError::Return(item))
+            }
         }
     }
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedPrimary, InterpretorError> {
@@ -539,14 +564,6 @@ impl Interpreter {
 }
 
 pub fn eval(ast: AST, interpreter: &mut Interpreter) -> Result<Primary, InterpretorError> {
-    let mut last = Primary::Nil;
-    for root in &ast.roots {
-        let ret = interpreter.eval_declaration(&ast, root.clone())?;
-        last = ret;
-    }
-    Ok(last)
-}
-pub fn eval_last(ast: AST, interpreter: &mut Interpreter) -> Result<Primary, InterpretorError> {
     let mut last = Primary::Nil;
     while interpreter.head < ast.roots.len() {
         let root = &ast.roots[interpreter.head];

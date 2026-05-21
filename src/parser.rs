@@ -40,7 +40,6 @@ pub enum Primary {
     String(String),
     Boolean(bool),
     Identifier(String),
-    Callee(String, usize),
     Nil,
 }
 impl Primary {
@@ -60,10 +59,10 @@ impl Display for Primary {
             Primary::Boolean(v) => write!(f, "Bool: {}", v),
             Primary::Nil => write!(f, "{}", "Nil"),
             Primary::Identifier(s) => write!(f, "Identifier({})", s),
-            Primary::Callee(s, _) => write!(f, "Function Call({})", s),
         }
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct Binary {
     pub left: ExprID,
@@ -128,6 +127,7 @@ pub enum Statement {
     Whileloop(ExprID, StatementID),
     Break(LocatedToken),
     Continue(LocatedToken),
+    Return(Option<ExprID>),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -319,7 +319,9 @@ impl<'a> ASTBuilder<'a> {
         while !self.my_match(&[SimpleToken::RightParen]).is_some() {
             let argument_name = self.get_identifier_string()?;
             arguments.push(argument_name);
-            self.consume(SimpleToken::Comma)?;
+            if self.peek() != &Token::Single(SimpleToken::RightParen) {
+                self.consume(SimpleToken::Comma)?;
+            }
         }
 
         let block = self.block()?;
@@ -386,6 +388,18 @@ impl<'a> ASTBuilder<'a> {
         {
             self.consume(SimpleToken::SemiColon)?;
             Ok(Statement::Continue(self.current(-1)))
+        } else if self
+            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Return)])
+            .is_some()
+        {
+            let expr = if self.peek() == &Token::Single(SimpleToken::SemiColon) {
+                None
+            } else {
+                Some(self.expression()?)
+            };
+            let ret = Statement::Return(expr);
+            self.consume(SimpleToken::SemiColon)?;
+            Ok(ret)
         } else {
             let expression = self.expression()?;
             self.consume(SimpleToken::SemiColon)?;

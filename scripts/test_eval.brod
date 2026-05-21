@@ -24,3 +24,14 @@ while (b < 64) {
 print(b == 64);
 print(abs(-1) == 1);
 print(sin(3.1415 / 2.0) <= 1.0);
+fn pow(a,b) {
+	var i = 0;
+	var ret = 1;
+	while (i < b)
+	{
+		ret = ret * a; i = i + 1;
+	}
+	ret;
+};
+
+print(pow(2, 3) == 8);

@@ -19,18 +19,13 @@ struct CliArgs {
 
 use reedline::{DefaultPrompt, Reedline, Signal};
 
-fn run(
-    source: &str,
-    source_name: String,
-    interpreter: &mut Interpreter,
-    ast: &mut AST,
-    is_repl: bool,
-) -> bool {
+fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &mut AST) -> bool {
     let tokens = lexer::lex(source.to_owned(), source_name.clone());
     if let Err(err) = tokens {
         eprintln!("{} {}", "Lexing Error:".red(), err);
     } else if let Ok(tokens) = tokens {
         let res = ASTBuilder::parse(tokens, ast);
+        // println!("{:#?}", ast);
         for err in &res.1 {
             eprintln!(
                 "{} {}",
@@ -39,11 +34,7 @@ fn run(
             );
         }
         if res.1.is_empty() {
-            let result = if is_repl {
-                interpreter::eval_last(ast.clone(), interpreter)
-            } else {
-                interpreter::eval(ast.clone(), interpreter)
-            };
+            let result = interpreter::eval(ast.clone(), interpreter);
             match result {
                 Ok(v) => {
                     if v != Primary::Nil {
@@ -76,13 +67,7 @@ fn run_repl(interpreter: &mut Interpreter) {
                 break;
             }
             Ok(Signal::Success(x)) => {
-                run(
-                    &(x + ";"),
-                    "prompt".to_string(),
-                    interpreter,
-                    &mut ast,
-                    true,
-                );
+                run(&(x + ";"), "prompt".to_string(), interpreter, &mut ast);
             }
             _ => break,
         }
@@ -93,13 +78,7 @@ fn run_file(source: PathBuf, interpreter: &mut Interpreter) {
     let mut ast = AST::default();
     let buf = read(&source).unwrap();
     let as_str = String::from_utf8(buf).expect("Only utf-8 encoding is accepted");
-    run(
-        &as_str,
-        source.display().to_string(),
-        interpreter,
-        &mut ast,
-        false,
-    );
+    run(&as_str, source.display().to_string(), interpreter, &mut ast);
 }
 fn main() {
     let mut interpreter = Interpreter::new();
