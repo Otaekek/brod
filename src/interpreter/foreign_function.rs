@@ -1,8 +1,8 @@
 use std::time::SystemTime;
 
 use crate::{
-    interpreter::{Environment, ForeignFunction, Interpreter, InterpretorError},
-    parser::{LocatedPrimary, Primary},
+    interpreter::interpreter::{Environment, ForeignFunction, Interpreter, InterpretorError},
+    parser::parser::{LocatedPrimary, Primary},
 };
 
 pub fn sin(input: &[LocatedPrimary], _env: &mut Environment) -> Result<Primary, InterpretorError> {

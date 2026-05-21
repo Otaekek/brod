@@ -1,8 +1,7 @@
 use std::fmt::Display;
 
-use crate::lexer::{LocatedToken, SimpleToken, Token, TokenVec};
+use crate::lexer::lexer::{KeyWordType, LocatedToken, SimpleToken, Token, TokenVec};
 
-use super::lexer;
 #[derive(Copy, Clone, Debug, PartialEq, enum_display::EnumDisplay)]
 pub enum Operator {
     Equal,
@@ -147,31 +146,6 @@ impl AST {
             roots: vec![],
         }
     }
-
-    // pub fn traverse_lrn<T: ASTVisitor>(&self, input: ExprID, visitor: &mut T) {
-    //     match &self.arena[input] {
-    //         Expr::Terminal(literal) => visitor.visit_terminal(&literal),
-    //         Expr::Unary(unary) => visitor.visit_unary(&self.arena, &unary),
-    //         Expr::Binary(binary) => {
-    //             self.traverse_lrn(binary.left, visitor);
-    //             self.traverse_lrn(binary.right, visitor);
-    //             visitor.visit_binary(&self.arena, &binary);
-    //         }
-    //         Expr::Statement(expr_id) => self.traverse_lrn(*expr_id, visitor),
-    //         Expr::Ternary(ternary) => {
-    //             self.traverse_lrn(ternary.left, visitor);
-    //             self.traverse_lrn(ternary.middle, visitor);
-    //             self.traverse_lrn(ternary.right, visitor);
-    //             visitor.visit_ternary(&self.arena, &ternary);
-    //         }
-    //     };
-    // }
-}
-pub trait _ASTVisitor {
-    fn visit_ternary(&mut self, arena: &[Expr], ternary: &Ternary);
-    fn visit_binary(&mut self, arena: &[Expr], binary: &Binary);
-    fn visit_terminal(&mut self, literal: &Primary);
-    fn visit_unary(&mut self, arena: &[Expr], unary: &Unary);
 }
 
 #[derive(Debug, Clone)]
@@ -295,15 +269,11 @@ impl<'a> ASTBuilder<'a> {
         while let Some(_) = self.my_match(&[SimpleToken::SemiColon]) {}
         if self.is_last() {
             return Ok(Declaration::Empty);
-        } else if self.current(0).token
-            == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Var))
-        {
+        } else if self.current(0).token == Token::Single(SimpleToken::KeyWord(KeyWordType::Var)) {
             let d = self.vardecl()?;
             self.consume(SimpleToken::SemiColon)?;
             Ok(d)
-        } else if self.current(0).token
-            == Token::Single(SimpleToken::KeyWord(lexer::KeyWordType::Fun))
-        {
+        } else if self.current(0).token == Token::Single(SimpleToken::KeyWord(KeyWordType::Fun)) {
             let d = self.function_def()?;
             Ok(d)
         } else {
@@ -312,7 +282,7 @@ impl<'a> ASTBuilder<'a> {
         }
     }
     fn function_def(&mut self) -> Result<Declaration, ASTError> {
-        self.consume(SimpleToken::KeyWord(lexer::KeyWordType::Fun))?;
+        self.consume(SimpleToken::KeyWord(KeyWordType::Fun))?;
         let name = self.get_identifier_string()?;
         self.consume(SimpleToken::LeftParen)?;
         let mut arguments = vec![];
@@ -358,38 +328,36 @@ impl<'a> ASTBuilder<'a> {
         }
     }
     fn statement(&mut self) -> Result<Statement, ASTError> {
-        let s = if self.check(&Token::Single(SimpleToken::KeyWord(
-            lexer::KeyWordType::Print,
-        ))) {
+        let s = if self.check(&Token::Single(SimpleToken::KeyWord(KeyWordType::Print))) {
             let r = self.print()?;
             self.consume(SimpleToken::SemiColon)?;
             Ok(r)
         } else if self.check(&Token::Single(SimpleToken::LeftBrace)) {
             self.block()
         } else if self
-            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::If)])
+            .my_match(&[SimpleToken::KeyWord(KeyWordType::If)])
             .is_some()
         {
             self.ifstmt()
         } else if self
-            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::While)])
+            .my_match(&[SimpleToken::KeyWord(KeyWordType::While)])
             .is_some()
         {
             self.whilestmt()
         } else if self
-            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Break)])
+            .my_match(&[SimpleToken::KeyWord(KeyWordType::Break)])
             .is_some()
         {
             self.consume(SimpleToken::SemiColon)?;
             Ok(Statement::Break(self.current(-1)))
         } else if self
-            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Continue)])
+            .my_match(&[SimpleToken::KeyWord(KeyWordType::Continue)])
             .is_some()
         {
             self.consume(SimpleToken::SemiColon)?;
             Ok(Statement::Continue(self.current(-1)))
         } else if self
-            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Return)])
+            .my_match(&[SimpleToken::KeyWord(KeyWordType::Return)])
             .is_some()
         {
             let expr = if self.peek() == &Token::Single(SimpleToken::SemiColon) {
@@ -424,7 +392,7 @@ impl<'a> ASTBuilder<'a> {
         let mut else_stmt = None;
         let mut stmt = vec![self.statement()?];
         while self
-            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Elif)])
+            .my_match(&[SimpleToken::KeyWord(KeyWordType::Elif)])
             .is_some()
         {
             self.consume(SimpleToken::LeftParen)?;
@@ -434,7 +402,7 @@ impl<'a> ASTBuilder<'a> {
             stmt.push(self.statement()?);
         }
         if self
-            .my_match(&[SimpleToken::KeyWord(lexer::KeyWordType::Else)])
+            .my_match(&[SimpleToken::KeyWord(KeyWordType::Else)])
             .is_some()
         {
             let stmt = self.statement()?;
@@ -447,7 +415,7 @@ impl<'a> ASTBuilder<'a> {
     }
 
     fn vardecl(&mut self) -> Result<Declaration, ASTError> {
-        self.consume(SimpleToken::KeyWord(lexer::KeyWordType::Var))?;
+        self.consume(SimpleToken::KeyWord(KeyWordType::Var))?;
         let ident = self.advance()?.clone();
         self.consume(SimpleToken::Equal)?;
         let right = self.expression()?;
@@ -459,7 +427,7 @@ impl<'a> ASTBuilder<'a> {
     }
 
     fn print(&mut self) -> Result<Statement, ASTError> {
-        self.consume(SimpleToken::KeyWord(lexer::KeyWordType::Print))?;
+        self.consume(SimpleToken::KeyWord(KeyWordType::Print))?;
         let mut to_print = vec![];
         self.consume(SimpleToken::LeftParen)?;
         loop {
@@ -689,25 +657,25 @@ impl<'a> ASTBuilder<'a> {
         }
         match self.advance()?.clone() {
             Token::Single(token) => match token {
-                lexer::SimpleToken::KeyWord(key_word_type) => match key_word_type {
-                    lexer::KeyWordType::False => Ok(self.emit_primary(Primary::Boolean(false), 0)),
-                    lexer::KeyWordType::True => Ok(self.emit_primary(Primary::Boolean(true), 0)),
-                    lexer::KeyWordType::Nil => Ok(self.emit_primary(Primary::Nil, 0)),
+                SimpleToken::KeyWord(key_word_type) => match key_word_type {
+                    KeyWordType::False => Ok(self.emit_primary(Primary::Boolean(false), 0)),
+                    KeyWordType::True => Ok(self.emit_primary(Primary::Boolean(true), 0)),
+                    KeyWordType::Nil => Ok(self.emit_primary(Primary::Nil, 0)),
                     _ => Err(self.error_token(
                         -1,
                         vec![
-                            SimpleToken::KeyWord(lexer::KeyWordType::True),
-                            SimpleToken::KeyWord(lexer::KeyWordType::False),
-                            SimpleToken::KeyWord(lexer::KeyWordType::Nil),
+                            SimpleToken::KeyWord(KeyWordType::True),
+                            SimpleToken::KeyWord(KeyWordType::False),
+                            SimpleToken::KeyWord(KeyWordType::Nil),
                         ],
                     )),
                 },
                 _ => Err(self.error_token(
                     -1,
                     vec![
-                        SimpleToken::KeyWord(lexer::KeyWordType::True),
-                        SimpleToken::KeyWord(lexer::KeyWordType::False),
-                        SimpleToken::KeyWord(lexer::KeyWordType::Nil),
+                        SimpleToken::KeyWord(KeyWordType::True),
+                        SimpleToken::KeyWord(KeyWordType::False),
+                        SimpleToken::KeyWord(KeyWordType::Nil),
                     ],
                 )),
             },

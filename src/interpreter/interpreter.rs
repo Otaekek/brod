@@ -1,6 +1,6 @@
 use crate::{
-    foreign_function::init_foreign_functions,
-    parser::{
+    interpreter::foreign_function::init_foreign_functions,
+    parser::parser::{
         Declaration, ExprID, FunctionCall, FunctionDefinition, LocatedPrimary, Operator, Primary,
         Statement, Unary, AST,
     },
@@ -281,10 +281,12 @@ impl Interpreter {
         function_call: &FunctionCall,
     ) -> Result<LocatedPrimary, InterpretorError> {
         let callee = match &ast.expr_arena[function_call.func] {
-            crate::parser::Expr::Terminal(located_primary) => match &located_primary.inner {
-                Primary::Identifier(s) => s,
-                _ => return Err(InterpretorError::FobbiddenTernay),
-            },
+            crate::parser::parser::Expr::Terminal(located_primary) => {
+                match &located_primary.inner {
+                    Primary::Identifier(s) => s,
+                    _ => return Err(InterpretorError::FobbiddenTernay),
+                }
+            }
             _ => return Err(InterpretorError::FobbiddenTernay),
         };
 
@@ -315,7 +317,7 @@ impl Interpreter {
         unary: Unary,
     ) -> Result<LocatedPrimary, InterpretorError> {
         match unary {
-            crate::parser::Unary::Not(v) => {
+            crate::parser::parser::Unary::Not(v) => {
                 let last = self.eval(ast, v)?;
                 match &last.inner {
                     Primary::Boolean(v) => {
@@ -324,7 +326,7 @@ impl Interpreter {
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
                 }
             }
-            crate::parser::Unary::Minus(v) => {
+            crate::parser::parser::Unary::Minus(v) => {
                 let last = self.eval(ast, v)?;
                 match &last.inner {
                     Primary::Number(v) => {
@@ -341,7 +343,7 @@ impl Interpreter {
         left: LocatedPrimary,
         right: LocatedPrimary,
     ) -> Result<LocatedPrimary, InterpretorError> {
-        use crate::parser::Operator::*;
+        use crate::parser::parser::Operator::*;
         let token_start = left.token_start;
         let token_end = right.token_end;
         let ret = match (&left.inner, &right.inner) {
@@ -511,17 +513,17 @@ impl Interpreter {
     }
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedPrimary, InterpretorError> {
         match &ast.expr_arena[root] {
-            crate::parser::Expr::Terminal(terminal) => match &terminal.inner {
+            crate::parser::parser::Expr::Terminal(terminal) => match &terminal.inner {
                 Primary::Identifier(v) => self.environment.get(v, terminal),
                 _ => return Ok(terminal.clone()),
             },
-            crate::parser::Expr::Unary(unary) => self.eval_unary(ast, *unary),
-            crate::parser::Expr::Binary(binary) => {
+            crate::parser::parser::Expr::Unary(unary) => self.eval_unary(ast, *unary),
+            crate::parser::parser::Expr::Binary(binary) => {
                 let left = self.eval(ast, binary.left)?;
                 let right = self.eval(ast, binary.right)?;
                 self.eval_binary(binary.operator, left, right)
             }
-            crate::parser::Expr::Ternary(ternary) => {
+            crate::parser::parser::Expr::Ternary(ternary) => {
                 let left = self.eval(ast, ternary.left)?;
                 match left.inner {
                     Primary::Boolean(v) => match v {
@@ -535,7 +537,7 @@ impl Interpreter {
                     _ => Err(InterpretorError::FobbiddenTernay),
                 }
             }
-            crate::parser::Expr::LogicalAnd(logical_and) => {
+            crate::parser::parser::Expr::LogicalAnd(logical_and) => {
                 let left = self.eval(ast, logical_and.left)?;
                 match &left.inner {
                     Primary::Boolean(false) => return Ok(left),
@@ -543,7 +545,7 @@ impl Interpreter {
                     _ => return Err(InterpretorError::FobbiddenTernay),
                 }
             }
-            crate::parser::Expr::LogicalOr(logical_or) => {
+            crate::parser::parser::Expr::LogicalOr(logical_or) => {
                 let left = self.eval(ast, logical_or.left)?;
                 match &left.inner {
                     Primary::Boolean(true) => return Ok(left),
@@ -551,12 +553,12 @@ impl Interpreter {
                     _ => return Err(InterpretorError::FobbiddenTernay),
                 }
             }
-            crate::parser::Expr::Assignment(s, expr) => {
+            crate::parser::parser::Expr::Assignment(s, expr) => {
                 let expr = self.eval(ast, *expr)?;
                 self.environment.assign(s, &expr)?;
                 Ok(expr)
             }
-            crate::parser::Expr::FunctionCall(function_call) => {
+            crate::parser::parser::Expr::FunctionCall(function_call) => {
                 self.function_call(ast, function_call)
             }
         }

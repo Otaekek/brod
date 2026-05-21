@@ -1,16 +1,11 @@
-mod foreign_function;
-mod interpreter;
-mod lexer;
-mod parser;
-use std::{fs::read, path::PathBuf, process::exit};
-
+use brod::{
+    interpreter::interpreter::{self, Interpreter},
+    lexer::lexer,
+    parser::parser::{ASTBuilder, Primary, AST},
+};
 use clap::Parser;
 use colored::Colorize;
-
-use crate::{
-    interpreter::Interpreter,
-    parser::{ASTBuilder, Primary, AST},
-};
+use std::{fs::read, path::PathBuf, process::exit};
 
 #[derive(Clone, Debug, Parser)]
 struct CliArgs {
@@ -26,6 +21,7 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
     } else if let Ok(tokens) = tokens {
         let res = ASTBuilder::parse(tokens, ast);
         // println!("{:#?}", ast);
+        // display_ast(ast);
         for err in &res.1 {
             eprintln!(
                 "{} {}",
