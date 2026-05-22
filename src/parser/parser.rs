@@ -114,6 +114,7 @@ pub enum Declaration {
     Statement(Statement),
     VarDecl(String, ExprID),
     FunctionDefinition(FunctionDefinition),
+    Comment(String),
     Empty,
 }
 
@@ -269,6 +270,15 @@ impl<'a> ASTBuilder<'a> {
         while let Some(_) = self.my_match(&[SimpleToken::SemiColon]) {}
         if self.is_last() {
             return Ok(Declaration::Empty);
+        } else if matches!(
+            &self.tokens.tokens[self.current_index].token,
+            Token::Comment(_)
+        ) {
+            let text = match self.advance()? {
+                Token::Comment(s) => s.clone(),
+                _ => unreachable!(),
+            };
+            return Ok(Declaration::Comment(text));
         } else if self.current(0).token == Token::Single(SimpleToken::KeyWord(KeyWordType::Var)) {
             let d = self.vardecl()?;
             self.consume(SimpleToken::SemiColon)?;
@@ -480,7 +490,7 @@ impl<'a> ASTBuilder<'a> {
         }
         Ok(left)
     }
-    fn ternary(&mut self) -> Result<ExprID, ASTError> {
+    fn _ternary(&mut self) -> Result<ExprID, ASTError> {
         let left = self.logical_and()?;
 
         if let Some(_) = self.my_match(&[SimpleToken::Question]) {
@@ -682,6 +692,7 @@ impl<'a> ASTBuilder<'a> {
             Token::Identifier(s) => Ok(self.emit_primary(Primary::Identifier(s), 0)),
             Token::StringLitteral(s) => Ok(self.emit_primary(Primary::String(s), 0)),
             Token::Number(n) => Ok(self.emit_primary(Primary::Number(n), 0)),
+            Token::Comment(_) => Err(self.error_token(-1, vec![])),
         }
     }
 

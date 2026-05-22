@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::parser::{ASTVisitor, Binary, Expr, Operator, Terminal, Unary, AST};
+use crate::parser::{AST, ASTVisitor, Binary, Expr, Operator, Terminal, Unary};
 
 #[derive(Copy, Clone)]
 enum RpnToken {

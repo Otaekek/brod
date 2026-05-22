@@ -11,11 +11,11 @@ use brod::{
 use clap::Parser;
 
 fn tabs(indent: usize) {
-    for i in 0..indent {
+    for _ in 0..indent {
         print!("    ");
     }
 }
-fn display_primary(ast: &AST, primary: &LocatedPrimary, indent: usize) {
+fn display_primary(_ast: &AST, primary: &LocatedPrimary, _indent: usize) {
     match &primary.inner {
         Primary::Number(s) => print!("{}", s),
         Primary::String(s) => print!("\"{}\"", s),
@@ -55,7 +55,7 @@ fn display_expression(ast: &AST, expr: &Expr, indent: usize) {
             }
             display_expression(ast, &ast.expr_arena[binary.right], indent);
         }
-        Expr::Ternary(ternary) => unreachable!(),
+        Expr::Ternary(_) => unreachable!(),
         Expr::LogicalAnd(logical_and) => {
             display_expression(ast, &ast.expr_arena[logical_and.left], indent);
             print!(" && ");
@@ -165,6 +165,7 @@ fn display_decl(ast: &AST, declaration: Declaration, indent: usize) {
         Declaration::FunctionDefinition(function_definition) => {
             display_function_definition(ast, function_definition, indent);
         }
+        Declaration::Comment(text) => println!("//{}", text),
         Declaration::Empty => (),
     }
 }

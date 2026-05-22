@@ -1,5 +1,3 @@
-use std::time::SystemTime;
-
 use crate::{
     interpreter::interpreter::{Environment, ForeignFunction, Interpreter, InterpretorError},
     parser::parser::{LocatedPrimary, Primary},

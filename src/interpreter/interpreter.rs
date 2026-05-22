@@ -10,7 +10,7 @@ use std::collections::HashMap;
 #[derive(Clone, Debug)]
 pub struct ForeignFunction {
     function: fn(&[LocatedPrimary], &mut Environment) -> Result<Primary, InterpretorError>,
-    num_arguments: usize,
+    _num_arguments: usize,
 }
 
 impl ForeignFunction {
@@ -20,7 +20,7 @@ impl ForeignFunction {
     ) -> Self {
         Self {
             function,
-            num_arguments,
+            _num_arguments: num_arguments,
         }
     }
     pub fn call(
@@ -423,6 +423,7 @@ impl Interpreter {
                 Ok(value.inner)
             }
             Declaration::Empty => Ok(Primary::Nil),
+            Declaration::Comment(_) => Ok(Primary::Nil),
             Declaration::FunctionDefinition(function_definition) => {
                 self.declare_function(function_definition);
                 Ok(Primary::Nil)
@@ -453,6 +454,10 @@ impl Interpreter {
                 let mut last = Primary::Nil;
                 self.environment.push();
                 for declaration in declarations {
+                    match declaration {
+                        Declaration::Comment(_) => continue,
+                        _ => (),
+                    };
                     last = self.eval_declaration(ast, declaration)?;
                 }
                 self.environment.pop();

@@ -114,6 +114,7 @@ pub enum Token {
     StringLitteral(String),
     Identifier(String),
     Number(f64),
+    Comment(String),
 }
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -122,6 +123,7 @@ impl Display for Token {
             Token::StringLitteral(str) => write!(f, "\"{}\"", str),
             Token::Identifier(c) => write!(f, "{}", c),
             Token::Number(n) => write!(f, "{}", n),
+            Token::Comment(s) => write!(f, "//{}", s),
         }
     }
 }
@@ -193,6 +195,7 @@ enum Action {
     PushNumber,
     PushEscapedInString,
     PushIdentifierOrKeyWord,
+    PushComment,
     Error,
 }
 
@@ -283,9 +286,9 @@ impl Fsm {
             (Default, Action::PushAndGoBack(Slash)),
         );
 
-        // Skip Everything until \n in a commented line
+        // Collect comment text until end of line
         self.transitions_anti("", State::Comment, (State::Comment, Action::None));
-        self.transition('\n', State::Comment, (Default, Action::None));
+        self.transition('\n', State::Comment, (Default, Action::PushComment));
 
         // String litterals like "Banana"
         self.transition('\"', Default, (BuildString, Action::None));
@@ -421,6 +424,13 @@ impl Lexer {
         }
         self.go_back();
     }
+
+    fn push_comment(&mut self) {
+        // start points at the second '/', so +1 skips it to get the comment body
+        let text = self.source[self.start + 1..self.current].to_string();
+        self.add_token(Token::Comment(text));
+    }
+
     pub fn lex(&mut self) -> Result<(), String> {
         self.source.push(' ');
         while !self.is_at_end() {
@@ -437,6 +447,7 @@ impl Lexer {
                 Action::PushNumber => self.push_number(),
                 Action::PushEscapedInString => self.push_string(),
                 Action::PushIdentifierOrKeyWord => self.push_identifier_or_keyword(),
+                Action::PushComment => self.push_comment(),
                 Action::Error => {
                     return Err(self.error(format!("Unexpected character \"{c}\"")));
                 } // Action::Last => {
@@ -453,6 +464,7 @@ impl Lexer {
                 State::BuildString,
                 State::BuildIdentOrKeyword,
                 State::BuildNumber,
+                State::Comment,
             ]
             .contains(&new_state)
                 && new_state != self.state
@@ -462,6 +474,12 @@ impl Lexer {
             self.state = new_state;
             self.row += 1;
             self.advance();
+        }
+        // Flush a comment that ends at EOF with no trailing newline
+        if self.state == State::Comment {
+            let end = self.source.len() - 1; // exclude the trailing space added above
+            let text = self.source[self.start + 1..end].to_string();
+            self.add_token(Token::Comment(text));
         }
         Ok(())
     }
