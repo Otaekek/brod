@@ -1,5 +1,5 @@
 use brod::{
-    interpreter::interpreter::{self, Interpreter},
+    interpreter::interpreter::{self, Interpreter, RTObject},
     lexer::lexer,
     parser::parser::{ASTBuilder, Primary, AST},
 };
@@ -33,9 +33,7 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
             let result = interpreter::eval(ast.clone(), interpreter);
             match result {
                 Ok(v) => {
-                    if v != Primary::Nil {
-                        println!("{}: {}", "Ok".green(), v)
-                    }
+                    println!("{}: {:#?}", "Ok".green(), v)
                 }
                 Err(err) => eprintln!(
                     "{} {}",

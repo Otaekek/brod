@@ -39,6 +39,7 @@ pub enum Primary {
     String(String),
     Boolean(bool),
     Identifier(String),
+    Path(Vec<String>),
     Nil,
 }
 impl Primary {
@@ -58,6 +59,7 @@ impl Display for Primary {
             Primary::Boolean(v) => write!(f, "Bool: {}", v),
             Primary::Nil => write!(f, "{}", "Nil"),
             Primary::Identifier(s) => write!(f, "Identifier({})", s),
+            Primary::Path(items) => todo!(),
         }
     }
 }

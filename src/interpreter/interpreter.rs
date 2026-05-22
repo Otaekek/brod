@@ -2,20 +2,29 @@ use crate::{
     interpreter::foreign_function::init_foreign_functions,
     parser::parser::{
         Declaration, ExprID, FunctionCall, FunctionDefinition, LocatedPrimary, Operator, Primary,
-        Statement, Unary, AST,
+        Statement, TokenID, Unary, AST,
     },
 };
 use std::collections::HashMap;
-
+impl LocatedPrimary {
+    pub fn to_object(self) -> LocatedRTObject {
+        RTObject::Primary(self.inner.clone()).locate_with(&self)
+    }
+}
+impl Primary {
+    pub fn to_object(self) -> RTObject {
+        RTObject::Primary(self)
+    }
+}
 #[derive(Clone, Debug)]
 pub struct ForeignFunction {
-    function: fn(&[LocatedPrimary], &mut Environment) -> Result<Primary, InterpretorError>,
+    function: fn(&[RTObject], &mut Environment) -> Result<RTObject, InterpretorError>,
     _num_arguments: usize,
 }
 
 impl ForeignFunction {
     pub fn new(
-        function: fn(&[LocatedPrimary], &mut Environment) -> Result<Primary, InterpretorError>,
+        function: fn(&[RTObject], &mut Environment) -> Result<RTObject, InterpretorError>,
         num_arguments: usize,
     ) -> Self {
         Self {
@@ -25,9 +34,9 @@ impl ForeignFunction {
     }
     pub fn call(
         &self,
-        arguments: &[LocatedPrimary],
+        arguments: &[RTObject],
         env: &mut Environment,
-    ) -> Result<Primary, InterpretorError> {
+    ) -> Result<RTObject, InterpretorError> {
         (self.function)(arguments, env)
     }
 }
@@ -43,8 +52,8 @@ impl ResidentFunction {
         &self,
         ast: &AST,
         interpreter: &mut Interpreter,
-        arguments: &[LocatedPrimary],
-    ) -> Result<Primary, InterpretorError> {
+        arguments: &[RTObject],
+    ) -> Result<RTObject, InterpretorError> {
         if arguments.len() != self.arguments.len() {
             return Err(InterpretorError::InvalidSignature);
         }
@@ -70,8 +79,8 @@ impl Function {
         &self,
         ast: &AST,
         interpreter: &mut Interpreter,
-        arguments: &[LocatedPrimary],
-    ) -> Result<LocatedPrimary, InterpretorError> {
+        arguments: &[RTObject],
+    ) -> Result<LocatedRTObject, InterpretorError> {
         // TODO: Locate callee
         let ret = {
             match self {
@@ -93,9 +102,70 @@ impl Function {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct Class {
+    name: String,
+    env: Environment,
+}
+
+#[derive(Debug, Clone)]
+pub enum RTObject {
+    Primary(Primary),
+    Class(Class),
+}
+impl Default for RTObject {
+    fn default() -> Self {
+        Self::Primary(Primary::Nil)
+    }
+}
+#[derive(Debug, Clone)]
+pub struct LocatedRTObject {
+    inner: RTObject,
+    // Inclusive range
+    pub token_start: TokenID,
+    pub token_end: TokenID,
+}
+
+impl LocatedRTObject {
+    pub fn get_primary(&self) -> Result<&Primary, InterpretorError> {
+        match &self.inner {
+            RTObject::Primary(primary) => Ok(&primary),
+            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay),
+        }
+    }
+    pub fn get_located_primary(self) -> Result<LocatedPrimary, InterpretorError> {
+        match self.inner {
+            RTObject::Primary(primary) => Ok(primary.located(self.token_start, self.token_end)),
+            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay),
+        }
+    }
+}
+
+impl RTObject {
+    pub fn get_primary(&self) -> Result<&Primary, InterpretorError> {
+        match &self {
+            RTObject::Primary(primary) => Ok(&primary),
+            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay),
+        }
+    }
+    pub fn located(self, token_start: usize, token_end: usize) -> LocatedRTObject {
+        LocatedRTObject {
+            inner: self,
+            token_start,
+            token_end,
+        }
+    }
+    pub fn locate_with(self, primary: &LocatedPrimary) -> LocatedRTObject {
+        LocatedRTObject {
+            inner: self,
+            token_start: primary.token_start,
+            token_end: primary.token_end,
+        }
+    }
+}
+#[derive(Debug, Clone)]
 pub struct Environment {
-    stack: Vec<HashMap<String, LocatedPrimary>>,
+    stack: Vec<HashMap<String, RTObject>>,
     pub functions: HashMap<String, Function>,
 }
 
@@ -107,10 +177,12 @@ impl Environment {
             functions: HashMap::new(),
         }
     }
-    pub fn add(&mut self, name: String, value: LocatedPrimary) {
+
+    pub fn add(&mut self, name: String, value: RTObject) {
         let last = self.stack.len() - 1;
-        self.stack[last].insert(name, value.clone());
+        self.stack[last].insert(name, value);
     }
+
     pub fn _check(&mut self, name: &String) -> bool {
         let last = self.stack.len();
         for i in 0..self.stack.len() {
@@ -121,11 +193,8 @@ impl Environment {
         }
         false
     }
-    pub fn assign(
-        &mut self,
-        name: &String,
-        value: &LocatedPrimary,
-    ) -> Result<(), InterpretorError> {
+
+    pub fn assign(&mut self, name: &String, value: &RTObject) -> Result<(), InterpretorError> {
         let last = self.stack.len();
         for i in 0..self.stack.len() {
             let r = self.stack[last - i - 1].get(name);
@@ -135,15 +204,13 @@ impl Environment {
                 return Ok(());
             }
         }
-
-        Err(InterpretorError::UnDeclaredIdentifier(value.clone()))
+        // TODO LOCATE
+        Err(InterpretorError::UnDeclaredIdentifier(
+            Primary::Nil.located(0, 0).to_object(),
+        ))
     }
 
-    pub fn get(
-        &self,
-        name: &String,
-        ident: &LocatedPrimary,
-    ) -> Result<LocatedPrimary, InterpretorError> {
+    pub fn get(&self, name: &String, ident: &LocatedPrimary) -> Result<RTObject, InterpretorError> {
         let last = self.stack.len();
         for i in 0..self.stack.len() {
             let r = self.stack[last - i - 1].get(name);
@@ -152,7 +219,9 @@ impl Environment {
             }
         }
 
-        Err(InterpretorError::UnDeclaredIdentifier(ident.clone()))
+        Err(InterpretorError::UnDeclaredIdentifier(
+            ident.clone().to_object(),
+        ))
     }
     pub fn push(&mut self) {
         self.stack.push(HashMap::new());
@@ -169,17 +238,17 @@ pub struct Interpreter {
 
 #[derive(Debug, Clone)]
 pub enum InterpretorError {
-    UnexpectedType(LocatedPrimary, String),
-    ForbiddenUnaryOperation(Unary, LocatedPrimary),
-    ForbiddenBinaryOperation(Operator, LocatedPrimary, LocatedPrimary),
+    UnexpectedType(LocatedRTObject, String),
+    ForbiddenUnaryOperation(Unary, LocatedRTObject),
+    ForbiddenBinaryOperation(Operator, LocatedRTObject, LocatedRTObject),
     FobbiddenTernay,
     ForbidenBreak,
-    NotCallable(LocatedPrimary),
+    NotCallable(LocatedRTObject),
     UnknownFunction(String),
     InvalidSignature,
     ForbidenContinue,
-    Return(LocatedPrimary),
-    UnDeclaredIdentifier(LocatedPrimary),
+    Return(LocatedRTObject),
+    UnDeclaredIdentifier(LocatedRTObject),
 }
 impl InterpretorError {
     fn format_error(
@@ -190,11 +259,15 @@ impl InterpretorError {
     ) -> std::fmt::Result {
         match self {
             InterpretorError::ForbiddenUnaryOperation(unary, terminal) => {
-                write!(f, "Forbiden operator: {} on type {}", unary, terminal.inner)
+                write!(
+                    f,
+                    "Forbiden operator: {} on type {:#?}",
+                    unary, terminal.inner
+                )
             }
             InterpretorError::ForbiddenBinaryOperation(operator, terminal, terminal1) => write!(
                 f,
-                "Forbiden operator: {} on type {} and {} in file {} from {} to {}",
+                "Forbiden operator: {} on type {:#?} and {:#?} in file {} from {} to {}",
                 operator,
                 terminal.inner,
                 terminal1.inner,
@@ -208,12 +281,12 @@ impl InterpretorError {
                 "left hand side of a ternary should be a boolean or a number"
             ),
             InterpretorError::UnDeclaredIdentifier(v) => {
-                write!(f, "Undeclared Variable {}", v.inner)
+                write!(f, "Undeclared Variable {:#?}", v.inner)
             }
             InterpretorError::UnexpectedType(located_primary, expected) => {
                 write!(
                     f,
-                    "Invalid type: {}, Expected : {}",
+                    "Invalid type: {:#?}, Expected : {}",
                     located_primary.inner, expected
                 )
             }
@@ -279,7 +352,7 @@ impl Interpreter {
         &mut self,
         ast: &AST,
         function_call: &FunctionCall,
-    ) -> Result<LocatedPrimary, InterpretorError> {
+    ) -> Result<LocatedRTObject, InterpretorError> {
         let callee = match &ast.expr_arena[function_call.func] {
             crate::parser::parser::Expr::Terminal(located_primary) => {
                 match &located_primary.inner {
@@ -293,7 +366,7 @@ impl Interpreter {
         let arguments = function_call
             .arguments
             .iter()
-            .map(|expr_id| self.eval(ast, *expr_id))
+            .map(|expr_id| Ok(self.eval(ast, *expr_id)?.inner))
             .collect::<Result<Vec<_>, _>>()?;
 
         let function = self.environment.functions.get(callee);
@@ -315,23 +388,23 @@ impl Interpreter {
         &mut self,
         ast: &AST,
         unary: Unary,
-    ) -> Result<LocatedPrimary, InterpretorError> {
+    ) -> Result<LocatedRTObject, InterpretorError> {
         match unary {
             crate::parser::parser::Unary::Not(v) => {
                 let last = self.eval(ast, v)?;
-                match &last.inner {
-                    Primary::Boolean(v) => {
-                        Ok(Primary::Boolean(!v).located(last.token_start, last.token_end))
-                    }
+                match last.get_primary()? {
+                    Primary::Boolean(v) => Ok(Primary::Boolean(!v)
+                        .located(last.token_start, last.token_end)
+                        .to_object()),
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
                 }
             }
             crate::parser::parser::Unary::Minus(v) => {
                 let last = self.eval(ast, v)?;
-                match &last.inner {
-                    Primary::Number(v) => {
-                        Ok(Primary::Number(-*v).located(last.token_start, last.token_end))
-                    }
+                match &last.get_primary()? {
+                    Primary::Number(v) => Ok(Primary::Number(-*v)
+                        .located(last.token_start, last.token_end)
+                        .to_object()),
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
                 }
             }
@@ -342,7 +415,7 @@ impl Interpreter {
         operator: Operator,
         left: LocatedPrimary,
         right: LocatedPrimary,
-    ) -> Result<LocatedPrimary, InterpretorError> {
+    ) -> Result<LocatedRTObject, InterpretorError> {
         use crate::parser::parser::Operator::*;
         let token_start = left.token_start;
         let token_end = right.token_end;
@@ -364,7 +437,9 @@ impl Interpreter {
                 NotEqual => Ok(Primary::Boolean(left_s != right_s)),
                 Plus => Ok(Primary::String(left_s.to_owned() + right_s)),
                 _ => Err(InterpretorError::ForbiddenBinaryOperation(
-                    operator, left, right,
+                    operator,
+                    left.to_object(),
+                    right.to_object(),
                 )),
             },
             (Primary::Boolean(left_bool), Primary::Boolean(right_bool)) => match operator {
@@ -375,14 +450,18 @@ impl Interpreter {
                 Greater => Ok(Primary::Boolean(left_bool > right_bool)),
                 GreaterEqual => Ok(Primary::Boolean(left_bool >= right_bool)),
                 _ => Err(InterpretorError::ForbiddenBinaryOperation(
-                    operator, left, right,
+                    operator,
+                    left.to_object(),
+                    right.to_object(),
                 )),
             },
             (Primary::Nil, Primary::Nil) => match operator {
                 Equal => Ok(Primary::Boolean(true)),
                 NotEqual => Ok(Primary::Boolean(false)),
                 _ => Err(InterpretorError::ForbiddenBinaryOperation(
-                    operator, left, right,
+                    operator,
+                    left.to_object(),
+                    right.to_object(),
                 )),
             },
             (Primary::String(s), Primary::Number(n)) => {
@@ -390,7 +469,9 @@ impl Interpreter {
                     Ok(Primary::String(s.clone() + n.to_string().as_str()))
                 } else {
                     Err(InterpretorError::ForbiddenBinaryOperation(
-                        operator, left, right,
+                        operator,
+                        left.to_object(),
+                        right.to_object(),
                     ))
                 }
             }
@@ -399,60 +480,64 @@ impl Interpreter {
                     Ok(Primary::String(n.to_string() + s.as_str()))
                 } else {
                     Err(InterpretorError::ForbiddenBinaryOperation(
-                        operator, left, right,
+                        operator,
+                        left.to_object(),
+                        right.to_object(),
                     ))
                 }
             }
             _ => Err(InterpretorError::ForbiddenBinaryOperation(
-                operator, left, right,
+                operator,
+                left.to_object(),
+                right.to_object(),
             )),
         };
-        Ok(ret?.located(token_start, token_end))
+        Ok(ret?.located(token_start, token_end).to_object())
     }
 
     pub fn eval_declaration(
         &mut self,
         ast: &AST,
         input: Declaration,
-    ) -> Result<Primary, InterpretorError> {
+    ) -> Result<RTObject, InterpretorError> {
         match input {
             Declaration::Statement(statement) => self.eval_statement(ast, statement),
             Declaration::VarDecl(ident, expr_id) => {
                 let value = self.eval(ast, expr_id)?;
-                self.environment.add(ident, value.clone());
+                self.environment.add(ident, value.inner.clone());
                 Ok(value.inner)
             }
-            Declaration::Empty => Ok(Primary::Nil),
-            Declaration::Comment(_) => Ok(Primary::Nil),
+            Declaration::Empty => Ok(RTObject::Primary(Primary::Nil)),
+            Declaration::Comment(_) => Ok(RTObject::Primary(Primary::Nil)),
             Declaration::FunctionDefinition(function_definition) => {
                 self.declare_function(function_definition);
-                Ok(Primary::Nil)
+                Ok(RTObject::Primary(Primary::Nil))
             }
-            Declaration::ClassDefinition(class_definition) => Ok(Primary::Nil),
+            Declaration::ClassDefinition(_) => Ok(RTObject::Primary(Primary::Nil)),
         }
     }
     pub fn eval_statement(
         &mut self,
         ast: &AST,
         input: Statement,
-    ) -> Result<Primary, InterpretorError> {
+    ) -> Result<RTObject, InterpretorError> {
         match input {
             Statement::ExprStatement(expr_id) => Ok(self.eval(ast, expr_id)?.inner),
             Statement::PrintStatement(items) => {
                 for x in items {
                     let r = self.eval(ast, x)?;
-                    match &r.inner.clone() {
+                    match &r.get_primary()? {
                         Primary::Identifier(s) => {
-                            let v = self.environment.get(s, &r)?;
-                            println!("{}", v.inner);
+                            let v = self.environment.get(s, &r.clone().get_located_primary()?)?;
+                            println!("{:#?}", v);
                         }
                         x => println!("{x}"),
                     }
                 }
-                Ok(Primary::Nil)
+                Ok(RTObject::Primary(Primary::Nil))
             }
             Statement::Block(declarations) => {
-                let mut last = Primary::Nil;
+                let mut last = Primary::Nil.to_object();
                 self.environment.push();
                 for declaration in declarations {
                     match declaration {
@@ -467,7 +552,7 @@ impl Interpreter {
             Statement::IfStatement(ifelses, else_stmt) => {
                 for (expr, stmt) in ifelses.iter() {
                     let expr = self.eval(ast, *expr)?;
-                    match expr.inner {
+                    match expr.get_primary()? {
                         Primary::Boolean(true) => return self.eval_statement(ast, stmt.clone()),
                         Primary::Boolean(false) => {}
 
@@ -484,13 +569,13 @@ impl Interpreter {
                     return self.eval_statement(ast, stmt);
                 }
 
-                Ok(Primary::Nil)
+                Ok(RTObject::default())
             }
             Statement::Whileloop(expr_id, stmt_id) => {
                 let stmt = ast.statement_arena[stmt_id].clone();
                 loop {
                     let r = self.eval(ast, expr_id)?;
-                    match r.inner {
+                    match r.get_primary()? {
                         Primary::Boolean(true) => {}
                         Primary::Boolean(false) => break,
                         _ => {
@@ -503,7 +588,7 @@ impl Interpreter {
                         _ => {}
                     };
                 }
-                Ok(Primary::Nil)
+                Ok(RTObject::default())
             }
             Statement::Break(_) => Err(InterpretorError::ForbidenBreak),
             Statement::Continue(_) => Err(InterpretorError::ForbidenContinue),
@@ -511,32 +596,38 @@ impl Interpreter {
                 let item = if let Some(item) = item {
                     self.eval(ast, item)?
                 } else {
-                    Primary::Nil.located(0, 0)
+                    RTObject::default().located(0, 0)
                 };
                 Err(InterpretorError::Return(item))
             }
         }
     }
-    pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedPrimary, InterpretorError> {
+    pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedRTObject, InterpretorError> {
         match &ast.expr_arena[root] {
             crate::parser::parser::Expr::Terminal(terminal) => match &terminal.inner {
-                Primary::Identifier(v) => self.environment.get(v, terminal),
-                _ => return Ok(terminal.clone()),
+                Primary::Identifier(v) => {
+                    Ok(self.environment.get(v, terminal)?.locate_with(terminal))
+                }
+                _ => return Ok(terminal.clone().to_object()),
             },
             crate::parser::parser::Expr::Unary(unary) => self.eval_unary(ast, *unary),
             crate::parser::parser::Expr::Binary(binary) => {
                 let left = self.eval(ast, binary.left)?;
                 let right = self.eval(ast, binary.right)?;
-                self.eval_binary(binary.operator, left, right)
+                self.eval_binary(
+                    binary.operator,
+                    left.get_located_primary()?,
+                    right.get_located_primary()?,
+                )
             }
             crate::parser::parser::Expr::Ternary(ternary) => {
                 let left = self.eval(ast, ternary.left)?;
-                match left.inner {
+                match left.get_primary()? {
                     Primary::Boolean(v) => match v {
                         true => self.eval(ast, ternary.middle),
                         false => self.eval(ast, ternary.right),
                     },
-                    Primary::Number(v) => match v > 0.0 {
+                    Primary::Number(v) => match v > &0.0 {
                         true => self.eval(ast, ternary.middle),
                         false => self.eval(ast, ternary.right),
                     },
@@ -545,7 +636,7 @@ impl Interpreter {
             }
             crate::parser::parser::Expr::LogicalAnd(logical_and) => {
                 let left = self.eval(ast, logical_and.left)?;
-                match &left.inner {
+                match &left.get_primary()? {
                     Primary::Boolean(false) => return Ok(left),
                     Primary::Boolean(true) => return self.eval(ast, logical_and.right),
                     _ => return Err(InterpretorError::FobbiddenTernay),
@@ -553,7 +644,7 @@ impl Interpreter {
             }
             crate::parser::parser::Expr::LogicalOr(logical_or) => {
                 let left = self.eval(ast, logical_or.left)?;
-                match &left.inner {
+                match &left.get_primary()? {
                     Primary::Boolean(true) => return Ok(left),
                     Primary::Boolean(false) => return self.eval(ast, logical_or.right),
                     _ => return Err(InterpretorError::FobbiddenTernay),
@@ -561,7 +652,7 @@ impl Interpreter {
             }
             crate::parser::parser::Expr::Assignment(s, expr) => {
                 let expr = self.eval(ast, *expr)?;
-                self.environment.assign(s, &expr)?;
+                self.environment.assign(s, &expr.inner)?;
                 Ok(expr)
             }
             crate::parser::parser::Expr::FunctionCall(function_call) => {
@@ -571,8 +662,8 @@ impl Interpreter {
     }
 }
 
-pub fn eval(ast: AST, interpreter: &mut Interpreter) -> Result<Primary, InterpretorError> {
-    let mut last = Primary::Nil;
+pub fn eval(ast: AST, interpreter: &mut Interpreter) -> Result<RTObject, InterpretorError> {
+    let mut last = RTObject::default();
     while interpreter.head < ast.roots.len() {
         let root = &ast.roots[interpreter.head];
         interpreter.head += 1;

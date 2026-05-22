@@ -21,7 +21,8 @@ fn display_primary(_ast: &AST, primary: &LocatedPrimary, _indent: usize) {
         Primary::String(s) => print!("\"{}\"", s),
         Primary::Boolean(s) => print!("{}", s),
         Primary::Identifier(s) => print!("{}", s),
-        Primary::Nil => todo!(),
+        Primary::Nil => print!("nil"),
+        Primary::Path(items) => todo!(),
     };
 }
 fn display_expression(ast: &AST, expr: &Expr, indent: usize) {

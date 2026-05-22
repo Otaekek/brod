@@ -1,37 +1,39 @@
 use crate::{
-    interpreter::interpreter::{Environment, ForeignFunction, Interpreter, InterpretorError},
-    parser::parser::{LocatedPrimary, Primary},
+    interpreter::interpreter::{
+        Environment, ForeignFunction, Interpreter, InterpretorError, RTObject,
+    },
+    parser::parser::Primary,
 };
 
-pub fn sin(input: &[LocatedPrimary], _env: &mut Environment) -> Result<Primary, InterpretorError> {
-    match input[0].inner {
-        Primary::Number(n) => Ok(Primary::Number(n.sin())),
+pub fn sin(input: &[RTObject], _env: &mut Environment) -> Result<RTObject, InterpretorError> {
+    match input[0].get_primary()? {
+        Primary::Number(n) => Ok(Primary::Number(n.sin()).to_object()),
         _ => Err(InterpretorError::FobbiddenTernay),
     }
 }
 
-pub fn cos(input: &[LocatedPrimary], _env: &mut Environment) -> Result<Primary, InterpretorError> {
-    match input[0].inner {
-        Primary::Number(n) => Ok(Primary::Number(n.cos())),
+pub fn cos(input: &[RTObject], _env: &mut Environment) -> Result<RTObject, InterpretorError> {
+    match input[0].get_primary()? {
+        Primary::Number(n) => Ok(Primary::Number(n.cos()).to_object()),
         _ => Err(InterpretorError::FobbiddenTernay),
     }
 }
 
-pub fn abs(input: &[LocatedPrimary], _env: &mut Environment) -> Result<Primary, InterpretorError> {
-    match input[0].inner {
-        Primary::Number(n) => Ok(Primary::Number(n.abs())),
+pub fn abs(input: &[RTObject], _env: &mut Environment) -> Result<RTObject, InterpretorError> {
+    match input[0].get_primary()? {
+        Primary::Number(n) => Ok(Primary::Number(n.abs()).to_object()),
         _ => Err(InterpretorError::FobbiddenTernay),
     }
 }
 
-pub fn now(_input: &[LocatedPrimary], _env: &mut Environment) -> Result<Primary, InterpretorError> {
+pub fn now(_input: &[RTObject], _env: &mut Environment) -> Result<RTObject, InterpretorError> {
     let now = chrono::Utc::now().to_string();
-    Ok(Primary::String(now))
+    Ok(Primary::String(now).to_object())
 }
 
-pub fn env(_: &[LocatedPrimary], env: &mut Environment) -> Result<Primary, InterpretorError> {
+pub fn env(_: &[RTObject], env: &mut Environment) -> Result<RTObject, InterpretorError> {
     println!("{:#?}", env);
-    Ok(Primary::Nil)
+    Ok(RTObject::default())
 }
 
 pub fn init_foreign_functions(interpreter: &mut Interpreter) {
