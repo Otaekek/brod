@@ -4,8 +4,8 @@ use std::{fs::read, path::PathBuf, process::exit};
 use brod::{
     lexer::lexer,
     parser::parser::{
-        ASTBuilder, Declaration, Expr, FunctionCall, FunctionDefinition, LocatedPrimary, Operator,
-        Primary, Statement, Unary, AST,
+        ASTBuilder, ClassDefinition, Declaration, Expr, FunctionCall, FunctionDefinition,
+        LocatedPrimary, Operator, Primary, Statement, Unary, AST,
     },
 };
 use clap::Parser;
@@ -153,6 +153,21 @@ fn display_function_definition(ast: &AST, function_definition: FunctionDefinitio
     display_statement(ast, function_definition.statement, indent);
 }
 
+fn display_class_definition(ast: &AST, class_definition: ClassDefinition, indent: usize) {
+    println!("class {} {{", class_definition.name);
+
+    for v in class_definition.fields {
+        tabs(indent);
+        println!("var {};", v);
+    }
+    for f in class_definition.functions {
+        tabs(indent);
+        display_function_definition(ast, f, indent + 1);
+    }
+    tabs(indent);
+    println!("}}");
+}
+
 fn display_decl(ast: &AST, declaration: Declaration, indent: usize) {
     tabs(indent);
     match declaration {
@@ -167,6 +182,9 @@ fn display_decl(ast: &AST, declaration: Declaration, indent: usize) {
         }
         Declaration::Comment(text) => println!("//{}", text),
         Declaration::Empty => (),
+        Declaration::ClassDefinition(class_definition) => {
+            display_class_definition(ast, class_definition, indent)
+        }
     }
 }
 pub fn display_ast(ast: &AST) {

@@ -428,6 +428,7 @@ impl Interpreter {
                 self.declare_function(function_definition);
                 Ok(Primary::Nil)
             }
+            Declaration::ClassDefinition(class_definition) => Ok(Primary::Nil),
         }
     }
     pub fn eval_statement(

@@ -96,6 +96,12 @@ pub struct FunctionDefinition {
     pub arguments: Vec<String>,
     pub statement: Statement,
 }
+#[derive(Clone, Debug)]
+pub struct ClassDefinition {
+    pub name: String,
+    pub fields: Vec<String>,
+    pub functions: Vec<FunctionDefinition>,
+}
 
 #[derive(Clone, Debug)]
 pub enum Expr {
@@ -114,6 +120,7 @@ pub enum Declaration {
     Statement(Statement),
     VarDecl(String, ExprID),
     FunctionDefinition(FunctionDefinition),
+    ClassDefinition(ClassDefinition),
     Comment(String),
     Empty,
 }
@@ -286,11 +293,47 @@ impl<'a> ASTBuilder<'a> {
         } else if self.current(0).token == Token::Single(SimpleToken::KeyWord(KeyWordType::Fun)) {
             let d = self.function_def()?;
             Ok(d)
+        } else if self.check(&Token::Single(SimpleToken::KeyWord(KeyWordType::Class))) {
+            self.class_definition()
         } else {
             let s = self.statement()?;
             Ok(Declaration::Statement(s))
         }
     }
+
+    fn class_definition(&mut self) -> Result<Declaration, ASTError> {
+        self.advance()?;
+
+        let name = self.get_identifier_string()?;
+        let mut fields = vec![];
+        let mut functions = vec![];
+        self.consume(SimpleToken::LeftBrace)?;
+        loop {
+            if self.my_match(&[SimpleToken::RightBrace]).is_some() {
+                break;
+            }
+            if self.check(&Token::Single(SimpleToken::KeyWord(KeyWordType::Fun))) {
+                let function_def = self.function_def()?;
+                let function_def = match function_def {
+                    Declaration::FunctionDefinition(function_definition) => function_definition,
+                    _ => unreachable!(),
+                };
+                functions.push(function_def);
+            } else if self.check(&Token::Single(SimpleToken::KeyWord(KeyWordType::Var))) {
+                self.advance()?;
+                fields.push(self.get_identifier_string()?);
+                self.consume(SimpleToken::SemiColon)?;
+            } else {
+                return Err(ASTError::TokenError(self.current(0), vec![]));
+            }
+        }
+        Ok(Declaration::ClassDefinition(ClassDefinition {
+            name,
+            fields,
+            functions,
+        }))
+    }
+
     fn function_def(&mut self) -> Result<Declaration, ASTError> {
         self.consume(SimpleToken::KeyWord(KeyWordType::Fun))?;
         let name = self.get_identifier_string()?;
