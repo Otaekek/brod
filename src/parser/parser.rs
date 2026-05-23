@@ -161,6 +161,7 @@ impl AST {
 #[derive(Debug, Clone)]
 pub enum ASTError {
     Eof,
+    NoConstructor(String),
     TooManyArguments,
     TokenError(LocatedToken, Vec<SimpleToken>),
     BinaryNoLeft(LocatedToken),
@@ -200,6 +201,7 @@ impl ASTError {
                 "{}",
                 "Too many argument for function call, maximum is 255"
             ),
+            ASTError::NoConstructor(name) => write!(f, "Class {} has no constructor", name),
         }
     }
 
@@ -328,6 +330,9 @@ impl<'a> ASTBuilder<'a> {
             } else {
                 return Err(ASTError::TokenError(self.current(0), vec![]));
             }
+        }
+        if !functions.iter().any(|x| x.name == name) {
+            return Err(ASTError::NoConstructor(name));
         }
         Ok(Declaration::ClassDefinition(ClassDefinition {
             name,
