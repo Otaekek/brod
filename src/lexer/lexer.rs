@@ -84,6 +84,7 @@ pub enum KeyWordType {
     Enum,
     Break,
     Continue,
+    MySelf,
 }
 
 static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
@@ -106,8 +107,10 @@ static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
     m.insert("enum", KeyWordType::Enum);
     m.insert("break", KeyWordType::Break);
     m.insert("continue", KeyWordType::Continue);
+    m.insert("self", KeyWordType::MySelf);
     m
 });
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
     Single(SimpleToken),

@@ -1,8 +1,8 @@
 use crate::{
     interpreter::foreign_function::init_foreign_functions,
     parser::parser::{
-        Declaration, ExprID, FunctionCall, FunctionDefinition, LocatedPrimary, Operator, Primary,
-        Statement, TokenID, Unary, AST,
+        ASTError, ClassDefinition, Declaration, ExprID, FunctionCall, FunctionDefinition,
+        LocatedPrimary, Operator, Primary, Statement, TokenID, Unary, AST,
     },
 };
 use std::collections::HashMap;
@@ -69,9 +69,59 @@ impl ResidentFunction {
 }
 
 #[derive(Clone, Debug)]
+pub struct ConstructorFunction {
+    class: ClassDefinition,
+}
+impl ConstructorFunction {
+    pub fn call(
+        &self,
+        ast: &AST,
+        interpreter: &mut Interpreter,
+        arguments: &[RTObject],
+    ) -> Result<RTObject, InterpretorError> {
+        let mut env = Environment::new();
+        for n in &self.class.fields {
+            env.add(n.clone(), RTObject::Primary(Primary::Nil));
+        }
+        for f in &self.class.functions {
+            env.functions.insert(
+                f.name.clone(),
+                Function::Resident(ResidentFunction {
+                    arguments: f.arguments.clone(),
+                    statement: f.statement.clone(),
+                }),
+            );
+        }
+
+        interpreter.mySelf.push(Instance {
+            name: self.class.name.clone(),
+            env,
+        });
+        if arguments.len() != self.class.constructor.arguments.len() {
+            return Err(InterpretorError::InvalidSignature);
+        }
+        interpreter.environment.push();
+
+        for (name, value) in self
+            .class
+            .constructor
+            .arguments
+            .iter()
+            .zip(arguments.iter())
+        {
+            interpreter.environment.add(name.clone(), value.clone());
+        }
+        interpreter.eval_statement(ast, self.class.constructor.statement.clone())?;
+        interpreter.environment.pop();
+        Ok(RTObject::Class(interpreter.mySelf.pop().unwrap()))
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum Function {
     Foreign(ForeignFunction),
     Resident(ResidentFunction),
+    Constructor(ConstructorFunction),
 }
 
 impl Function {
@@ -90,6 +140,9 @@ impl Function {
                 Function::Resident(resident_function) => resident_function
                     .call(ast, interpreter, arguments)
                     .map(|x| x.located(0, 0)),
+                Function::Constructor(constructor_function) => constructor_function
+                    .call(ast, interpreter, arguments)
+                    .map(|x| x.located(0, 0)),
             }
         };
         match ret {
@@ -103,7 +156,7 @@ impl Function {
 }
 
 #[derive(Debug, Clone)]
-pub struct Class {
+pub struct Instance {
     name: String,
     env: Environment,
 }
@@ -111,7 +164,7 @@ pub struct Class {
 #[derive(Debug, Clone)]
 pub enum RTObject {
     Primary(Primary),
-    Class(Class),
+    Class(Instance),
 }
 impl Default for RTObject {
     fn default() -> Self {
@@ -130,7 +183,10 @@ impl LocatedRTObject {
     pub fn get_primary(&self) -> Result<&Primary, InterpretorError> {
         match &self.inner {
             RTObject::Primary(primary) => Ok(&primary),
-            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay),
+            RTObject::Class(_) => {
+                println!("bjr");
+                Err(InterpretorError::FobbiddenTernay)
+            }
         }
     }
     pub fn get_located_primary(self) -> Result<LocatedPrimary, InterpretorError> {
@@ -210,7 +266,12 @@ impl Environment {
         ))
     }
 
-    pub fn get(&self, name: &String, ident: &LocatedPrimary) -> Result<RTObject, InterpretorError> {
+    pub fn get(
+        &self,
+        name: &String,
+        ident: &LocatedRTObject,
+    ) -> Result<RTObject, InterpretorError> {
+        println!("{} {:#?}", name, ident);
         let last = self.stack.len();
         for i in 0..self.stack.len() {
             let r = self.stack[last - i - 1].get(name);
@@ -219,9 +280,7 @@ impl Environment {
             }
         }
 
-        Err(InterpretorError::UnDeclaredIdentifier(
-            ident.clone().to_object(),
-        ))
+        Err(InterpretorError::UnDeclaredIdentifier(ident.clone()))
     }
     pub fn push(&mut self) {
         self.stack.push(HashMap::new());
@@ -233,6 +292,7 @@ impl Environment {
 #[derive(Debug)]
 pub struct Interpreter {
     environment: Environment,
+    mySelf: Vec<Instance>,
     head: usize,
 }
 
@@ -247,6 +307,7 @@ pub enum InterpretorError {
     UnknownFunction(String),
     InvalidSignature,
     ForbidenContinue,
+    Ungetable(LocatedRTObject),
     Return(LocatedRTObject),
     UnDeclaredIdentifier(LocatedRTObject),
 }
@@ -306,6 +367,9 @@ impl InterpretorError {
             InterpretorError::Return(_) => {
                 write!(f, "{}", "invalid return: return should be in function")
             }
+            InterpretorError::Ungetable(located_rtobject) => {
+                write!(f, "{:#?} is not getable", located_rtobject)
+            }
         }
     }
     pub fn get_formated_error(&self, ast: &AST, source: &str) -> String {
@@ -342,6 +406,12 @@ impl Interpreter {
         );
     }
 
+    pub fn declare_constructor(&mut self, class: ClassDefinition) {
+        self.environment.functions.insert(
+            class.constructor.name.clone(),
+            Function::Constructor(ConstructorFunction { class: class }),
+        );
+    }
     pub fn bind_forein(&mut self, name: &str, function: ForeignFunction) {
         self.environment
             .functions
@@ -353,32 +423,39 @@ impl Interpreter {
         ast: &AST,
         function_call: &FunctionCall,
     ) -> Result<LocatedRTObject, InterpretorError> {
-        let callee = match &ast.expr_arena[function_call.func] {
-            crate::parser::parser::Expr::Terminal(located_primary) => {
-                match &located_primary.inner {
-                    Primary::Identifier(s) => s,
-                    _ => return Err(InterpretorError::FobbiddenTernay),
-                }
-            }
-            _ => return Err(InterpretorError::FobbiddenTernay),
-        };
-
         let arguments = function_call
             .arguments
             .iter()
             .map(|expr_id| Ok(self.eval(ast, *expr_id)?.inner))
             .collect::<Result<Vec<_>, _>>()?;
-
-        let function = self.environment.functions.get(callee);
-        match function.cloned() {
+        let function = match &ast.expr_arena[function_call.func] {
+            crate::parser::parser::Expr::Terminal(located_primary) => {
+                let callee = match &located_primary.inner {
+                    Primary::Identifier(s) => s,
+                    _ => return Err(InterpretorError::FobbiddenTernay),
+                };
+                let function = self.environment.functions.get(callee).cloned();
+                function
+            }
+            crate::parser::parser::Expr::Get(expr_id, name) => {
+                let a = self.eval_get(ast, *expr_id, name)?;
+                match a.inner {
+                    RTObject::Class(instance) => instance.env.functions.get(name).cloned(),
+                    _ => unreachable!(),
+                }
+            }
+            _ => return Err(InterpretorError::FobbiddenTernay),
+        };
+        match function {
             Some(function) => function.call(ast, self, &arguments),
-            None => Err(InterpretorError::UnknownFunction(callee.clone())),
+            None => Err(InterpretorError::UnknownFunction("callee".to_string())),
         }
     }
     pub fn new() -> Self {
         let mut ret = Self {
             environment: Environment::new(),
             head: 0,
+            mySelf: vec![],
         };
         init_foreign_functions(&mut ret);
         ret
@@ -513,7 +590,10 @@ impl Interpreter {
                 self.declare_function(function_definition);
                 Ok(RTObject::Primary(Primary::Nil))
             }
-            Declaration::ClassDefinition(_) => Ok(RTObject::Primary(Primary::Nil)),
+            Declaration::ClassDefinition(class) => {
+                self.declare_constructor(class);
+                Ok(RTObject::Primary(Primary::Nil))
+            }
         }
     }
     pub fn eval_statement(
@@ -528,7 +608,9 @@ impl Interpreter {
                     let r = self.eval(ast, x)?;
                     match &r.get_primary()? {
                         Primary::Identifier(s) => {
-                            let v = self.environment.get(s, &r.clone().get_located_primary()?)?;
+                            let v = self
+                                .environment
+                                .get(s, &r.clone().get_located_primary()?.to_object())?;
                             println!("{:#?}", v);
                         }
                         x => println!("{x}"),
@@ -605,9 +687,10 @@ impl Interpreter {
     pub fn eval(&mut self, ast: &AST, root: ExprID) -> Result<LocatedRTObject, InterpretorError> {
         match &ast.expr_arena[root] {
             crate::parser::parser::Expr::Terminal(terminal) => match &terminal.inner {
-                Primary::Identifier(v) => {
-                    Ok(self.environment.get(v, terminal)?.locate_with(terminal))
-                }
+                Primary::Identifier(v) => Ok(self
+                    .environment
+                    .get(v, &terminal.clone().to_object())?
+                    .locate_with(terminal)),
                 _ => return Ok(terminal.clone().to_object()),
             },
             crate::parser::parser::Expr::Unary(unary) => self.eval_unary(ast, *unary),
@@ -657,6 +740,39 @@ impl Interpreter {
             }
             crate::parser::parser::Expr::FunctionCall(function_call) => {
                 self.function_call(ast, function_call)
+            }
+            crate::parser::parser::Expr::Get(expr_id, name) => self.eval_get(ast, *expr_id, name),
+        }
+    }
+    pub fn eval_get(
+        &mut self,
+        ast: &AST,
+        expr_id: ExprID,
+        name: &String,
+    ) -> Result<LocatedRTObject, InterpretorError> {
+        let expr = self.eval(ast, expr_id)?;
+        match expr.inner.clone() {
+            RTObject::Primary(primary) => match primary {
+                Primary::MySelf => {
+                    if self.mySelf.is_empty() {
+                        return Err(InterpretorError::FobbiddenTernay);
+                    } else {
+                        return Ok(LocatedRTObject {
+                            inner: RTObject::Class(self.mySelf.last().unwrap().clone()),
+                            token_start: 0,
+                            token_end: 0,
+                        });
+                    }
+                }
+                Primary::Identifier(_) => unreachable!("Should be evaluated already"),
+                _ => Err(InterpretorError::Ungetable(expr)),
+            },
+            RTObject::Class(instance) => {
+                // TODO: Locate
+                instance
+                    .env
+                    .get(name, &expr.inner.located(0, 0))
+                    .map(|x| x.located(0, 0))
             }
         }
     }

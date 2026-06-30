@@ -35,11 +35,11 @@ pub struct LocatedPrimary {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Primary {
+    MySelf,
     Number(f64),
     String(String),
     Boolean(bool),
     Identifier(String),
-    Path(Vec<String>),
     Nil,
 }
 impl Primary {
@@ -59,7 +59,7 @@ impl Display for Primary {
             Primary::Boolean(v) => write!(f, "Bool: {}", v),
             Primary::Nil => write!(f, "{}", "Nil"),
             Primary::Identifier(s) => write!(f, "Identifier({})", s),
-            Primary::Path(items) => todo!(),
+            Primary::MySelf => write!(f, "{}", "Self"),
         }
     }
 }
@@ -103,6 +103,7 @@ pub struct ClassDefinition {
     pub name: String,
     pub fields: Vec<String>,
     pub functions: Vec<FunctionDefinition>,
+    pub constructor: FunctionDefinition,
 }
 
 #[derive(Clone, Debug)]
@@ -115,6 +116,7 @@ pub enum Expr {
     LogicalOr(LogicalOr),
     Assignment(String, ExprID),
     FunctionCall(FunctionCall),
+    Get(ExprID, String),
 }
 
 #[derive(Clone, Debug)]
@@ -312,6 +314,7 @@ impl<'a> ASTBuilder<'a> {
         let mut fields = vec![];
         let mut functions = vec![];
         self.consume(SimpleToken::LeftBrace)?;
+        let mut constructor: Option<FunctionDefinition> = None;
         loop {
             if self.my_match(&[SimpleToken::RightBrace]).is_some() {
                 break;
@@ -322,7 +325,11 @@ impl<'a> ASTBuilder<'a> {
                     Declaration::FunctionDefinition(function_definition) => function_definition,
                     _ => unreachable!(),
                 };
-                functions.push(function_def);
+                if function_def.name == name {
+                    constructor = Some(function_def);
+                } else {
+                    functions.push(function_def);
+                }
             } else if self.check(&Token::Single(SimpleToken::KeyWord(KeyWordType::Var))) {
                 self.advance()?;
                 fields.push(self.get_identifier_string()?);
@@ -331,13 +338,14 @@ impl<'a> ASTBuilder<'a> {
                 return Err(ASTError::TokenError(self.current(0), vec![]));
             }
         }
-        if !functions.iter().any(|x| x.name == name) {
+        if constructor.is_none() {
             return Err(ASTError::NoConstructor(name));
         }
         Ok(Declaration::ClassDefinition(ClassDefinition {
             name,
             fields,
             functions,
+            constructor: constructor.unwrap(),
         }))
     }
 
@@ -674,37 +682,42 @@ impl<'a> ASTBuilder<'a> {
     fn function_call(&mut self) -> Result<ExprID, ASTError> {
         let mut left = self.primary()?;
 
-        while self.my_match(&[SimpleToken::LeftParen]).is_some() {
+        while let Some(last) = self.my_match(&[SimpleToken::LeftParen, SimpleToken::Dot]) {
             let mut arguments = vec![];
             let mut arguments_count = 0;
             loop {
-                if self.my_match(&[SimpleToken::RightParen]).is_some() {
-                    left = self.emit(Expr::FunctionCall(FunctionCall {
-                        func: left,
-                        arguments: vec![],
-                    }));
-                    arguments.clear();
-                    arguments_count += 1;
-                    if arguments_count > 255 {
-                        return Err(ASTError::TooManyArguments);
+                if last == SimpleToken::LeftParen {
+                    if self.my_match(&[SimpleToken::RightParen]).is_some() {
+                        left = self.emit(Expr::FunctionCall(FunctionCall {
+                            func: left,
+                            arguments: vec![],
+                        }));
+                        arguments.clear();
+                        arguments_count += 1;
+                        if arguments_count > 255 {
+                            return Err(ASTError::TooManyArguments);
+                        }
+                        break;
                     }
+                    arguments.push(self.expression()?);
+                    if self.my_match(&[SimpleToken::RightParen]).is_some() {
+                        left = self.emit(Expr::FunctionCall(FunctionCall {
+                            func: left,
+                            arguments: arguments.clone(),
+                        }));
+                        arguments_count += 1;
+                        if arguments_count > 255 {
+                            return Err(ASTError::TooManyArguments);
+                        }
+                        arguments.clear();
+                        break;
+                    }
+                    self.consume(SimpleToken::Comma)?;
+                } else {
+                    let right = self.get_identifier_string()?;
+                    left = self.emit(Expr::Get(left, right));
                     break;
                 }
-                arguments.push(self.expression()?);
-
-                if self.my_match(&[SimpleToken::RightParen]).is_some() {
-                    left = self.emit(Expr::FunctionCall(FunctionCall {
-                        func: left,
-                        arguments: arguments.clone(),
-                    }));
-                    arguments_count += 1;
-                    if arguments_count > 255 {
-                        return Err(ASTError::TooManyArguments);
-                    }
-                    arguments.clear();
-                    break;
-                }
-                self.consume(SimpleToken::Comma)?;
             }
         }
         Ok(left)
@@ -716,6 +729,9 @@ impl<'a> ASTBuilder<'a> {
             return Ok(expression);
         }
         match self.advance()?.clone() {
+            Token::Single(SimpleToken::KeyWord(KeyWordType::MySelf)) => {
+                Ok(self.emit_primary(Primary::MySelf, 0))
+            }
             Token::Single(token) => match token {
                 SimpleToken::KeyWord(key_word_type) => match key_word_type {
                     KeyWordType::False => Ok(self.emit_primary(Primary::Boolean(false), 0)),

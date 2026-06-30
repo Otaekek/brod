@@ -35,3 +35,11 @@ fn pow(a,b) {
 };
 
 print(pow(2, 3) == 8);
+
+class a {
+	fn a() {
+		return 1;
+	}
+
+	var b;
+}

@@ -22,7 +22,7 @@ fn display_primary(_ast: &AST, primary: &LocatedPrimary, _indent: usize) {
         Primary::Boolean(s) => print!("{}", s),
         Primary::Identifier(s) => print!("{}", s),
         Primary::Nil => print!("nil"),
-        Primary::Path(items) => todo!(),
+        Primary::MySelf => todo!(),
     };
 }
 fn display_expression(ast: &AST, expr: &Expr, indent: usize) {
@@ -72,6 +72,7 @@ fn display_expression(ast: &AST, expr: &Expr, indent: usize) {
             display_expression(ast, &ast.expr_arena[*right], indent);
         }
         Expr::FunctionCall(function_call) => display_function_call(ast, &function_call, indent),
+        Expr::Get(expr, name) => todo!(),
     }
 }
 
