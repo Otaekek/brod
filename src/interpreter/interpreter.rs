@@ -5,7 +5,7 @@ use crate::{
         LocatedPrimary, Operator, Primary, Statement, TokenID, Unary, AST,
     },
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 impl LocatedPrimary {
     pub fn to_object(self) -> LocatedRTObject {
         RTObject::Primary(self.inner.clone()).locate_with(&self)
@@ -161,10 +161,24 @@ pub struct Instance {
     env: Environment,
 }
 
+impl Display for Instance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:#?}", self)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RTObject {
     Primary(Primary),
     Class(Instance),
+}
+impl Display for RTObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RTObject::Primary(primary) => write!(f, "{}", primary),
+            RTObject::Class(instance) => write!(f, "{}", instance),
+        }
+    }
 }
 impl Default for RTObject {
     fn default() -> Self {
@@ -183,10 +197,7 @@ impl LocatedRTObject {
     pub fn get_primary(&self) -> Result<&Primary, InterpretorError> {
         match &self.inner {
             RTObject::Primary(primary) => Ok(&primary),
-            RTObject::Class(_) => {
-                println!("bjr");
-                Err(InterpretorError::FobbiddenTernay)
-            }
+            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay),
         }
     }
     pub fn get_located_primary(self) -> Result<LocatedPrimary, InterpretorError> {
@@ -271,7 +282,6 @@ impl Environment {
         name: &String,
         ident: &LocatedRTObject,
     ) -> Result<RTObject, InterpretorError> {
-        println!("{} {:#?}", name, ident);
         let last = self.stack.len();
         for i in 0..self.stack.len() {
             let r = self.stack[last - i - 1].get(name);
@@ -428,6 +438,7 @@ impl Interpreter {
             .iter()
             .map(|expr_id| Ok(self.eval(ast, *expr_id)?.inner))
             .collect::<Result<Vec<_>, _>>()?;
+
         let function = match &ast.expr_arena[function_call.func] {
             crate::parser::parser::Expr::Terminal(located_primary) => {
                 let callee = match &located_primary.inner {
@@ -438,8 +449,8 @@ impl Interpreter {
                 function
             }
             crate::parser::parser::Expr::Get(expr_id, name) => {
-                let a = self.eval_get(ast, *expr_id, name)?;
-                match a.inner {
+                let expr = self.eval(ast, *expr_id)?;
+                match expr.inner {
                     RTObject::Class(instance) => instance.env.functions.get(name).cloned(),
                     _ => unreachable!(),
                 }

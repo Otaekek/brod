@@ -20,7 +20,7 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
         eprintln!("{} {}", "Lexing Error:".red(), err);
     } else if let Ok(tokens) = tokens {
         let res = ASTBuilder::parse(tokens, ast);
-        println!("{:#?}", ast);
+        // println!("{:#?}", ast);
         for err in &res.1 {
             eprintln!(
                 "{} {}",
@@ -32,7 +32,7 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
             let result = interpreter::eval(ast.clone(), interpreter);
             match result {
                 Ok(v) => {
-                    println!("{}: {:#?}", "Ok".green(), v)
+                    println!("{}: {}", "Ok".green(), v)
                 }
                 Err(err) => eprintln!(
                     "{} {}",
