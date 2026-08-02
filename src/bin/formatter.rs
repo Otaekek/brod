@@ -4,8 +4,8 @@ use std::{fs::read, path::PathBuf, process::exit};
 use brod::{
     lexer::lexer,
     parser::parser::{
-        ASTBuilder, ClassDefinition, Declaration, Expr, FunctionCall, FunctionDefinition,
-        LocatedPrimary, Operator, Primary, Statement, Unary, AST,
+        AST, ASTBuilder, ClassDefinition, Declaration, Expr, FunctionCall, FunctionDefinition,
+        LocatedPrimary, Operator, Primary, Statement, Unary,
     },
 };
 use clap::Parser;
@@ -72,7 +72,7 @@ fn display_expression(ast: &AST, expr: &Expr, indent: usize) {
             display_expression(ast, &ast.expr_arena[*right], indent);
         }
         Expr::FunctionCall(function_call) => display_function_call(ast, &function_call, indent),
-        Expr::Get(expr, name) => todo!(),
+        Expr::Get(_expr, _name) => todo!(),
     }
 }
 

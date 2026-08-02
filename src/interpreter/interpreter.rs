@@ -1,8 +1,12 @@
+use crate::interpreter::functions::ConstructorFunction;
+use crate::interpreter::functions::ForeignFunction;
+use crate::interpreter::functions::Function;
+use crate::interpreter::functions::ResidentFunction;
 use crate::{
     interpreter::foreign_function::init_foreign_functions,
     parser::parser::{
-        ASTError, ClassDefinition, Declaration, ExprID, FunctionCall, FunctionDefinition,
-        LocatedPrimary, Operator, Primary, Statement, TokenID, Unary, AST,
+        AST, ClassDefinition, Declaration, ExprID, FunctionCall, FunctionDefinition,
+        LocatedPrimary, Operator, Primary, Statement, TokenID, Unary,
     },
 };
 use std::{collections::HashMap, fmt::Display};
@@ -16,149 +20,10 @@ impl Primary {
         RTObject::Primary(self)
     }
 }
-#[derive(Clone, Debug)]
-pub struct ForeignFunction {
-    function: fn(&[RTObject], &mut Environment) -> Result<RTObject, InterpretorError>,
-    _num_arguments: usize,
-}
-
-impl ForeignFunction {
-    pub fn new(
-        function: fn(&[RTObject], &mut Environment) -> Result<RTObject, InterpretorError>,
-        num_arguments: usize,
-    ) -> Self {
-        Self {
-            function,
-            _num_arguments: num_arguments,
-        }
-    }
-    pub fn call(
-        &self,
-        arguments: &[RTObject],
-        env: &mut Environment,
-    ) -> Result<RTObject, InterpretorError> {
-        (self.function)(arguments, env)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ResidentFunction {
-    arguments: Vec<String>,
-    statement: Statement,
-}
-
-impl ResidentFunction {
-    pub fn call(
-        &self,
-        ast: &AST,
-        interpreter: &mut Interpreter,
-        arguments: &[RTObject],
-    ) -> Result<RTObject, InterpretorError> {
-        if arguments.len() != self.arguments.len() {
-            return Err(InterpretorError::InvalidSignature);
-        }
-        interpreter.environment.push();
-
-        for (name, value) in self.arguments.iter().zip(arguments.iter()) {
-            interpreter.environment.add(name.clone(), value.clone());
-        }
-        let ret = interpreter.eval_statement(ast, self.statement.clone())?;
-        interpreter.environment.pop();
-        Ok(ret)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ConstructorFunction {
-    class: ClassDefinition,
-}
-impl ConstructorFunction {
-    pub fn call(
-        &self,
-        ast: &AST,
-        interpreter: &mut Interpreter,
-        arguments: &[RTObject],
-    ) -> Result<RTObject, InterpretorError> {
-        let mut env = Environment::new();
-        for n in &self.class.fields {
-            env.add(n.clone(), RTObject::Primary(Primary::Nil));
-        }
-        for f in &self.class.functions {
-            env.functions.insert(
-                f.name.clone(),
-                Function::Resident(ResidentFunction {
-                    arguments: f.arguments.clone(),
-                    statement: f.statement.clone(),
-                }),
-            );
-        }
-
-        interpreter.mySelf.push(Instance {
-            name: self.class.name.clone(),
-            env,
-        });
-        if arguments.len() != self.class.constructor.arguments.len() {
-            return Err(InterpretorError::InvalidSignature);
-        }
-        interpreter.environment.push();
-
-        for (name, value) in self
-            .class
-            .constructor
-            .arguments
-            .iter()
-            .zip(arguments.iter())
-        {
-            interpreter.environment.add(name.clone(), value.clone());
-        }
-        interpreter.eval_statement(ast, self.class.constructor.statement.clone())?;
-        interpreter.environment.pop();
-        Ok(RTObject::Class(interpreter.mySelf.pop().unwrap()))
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum Function {
-    Foreign(ForeignFunction),
-    Resident(ResidentFunction),
-    Constructor(ConstructorFunction),
-}
-
-impl Function {
-    pub fn call(
-        &self,
-        ast: &AST,
-        interpreter: &mut Interpreter,
-        arguments: &[RTObject],
-    ) -> Result<LocatedRTObject, InterpretorError> {
-        // TODO: Locate callee
-        let ret = {
-            match self {
-                Function::Foreign(foreign_function) => foreign_function
-                    .call(arguments, &mut interpreter.environment)
-                    .map(|x| x.located(0, 0)),
-                Function::Resident(resident_function) => resident_function
-                    .call(ast, interpreter, arguments)
-                    .map(|x| x.located(0, 0)),
-                Function::Constructor(constructor_function) => constructor_function
-                    .call(ast, interpreter, arguments)
-                    .map(|x| x.located(0, 0)),
-            }
-        };
-        match ret {
-            Err(err) => match err {
-                InterpretorError::Return(ret) => Ok(ret),
-                x => Err(x),
-            },
-            x => x,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct Instance {
-    name: String,
-    env: Environment,
+    pub name: String,
+    pub env: Environment,
 }
 
 impl Display for Instance {
@@ -301,8 +166,8 @@ impl Environment {
 }
 #[derive(Debug)]
 pub struct Interpreter {
-    environment: Environment,
-    mySelf: Vec<Instance>,
+    pub environment: Environment,
+    pub my_self: Vec<Instance>,
     head: usize,
 }
 
@@ -466,7 +331,7 @@ impl Interpreter {
         let mut ret = Self {
             environment: Environment::new(),
             head: 0,
-            mySelf: vec![],
+            my_self: vec![],
         };
         init_foreign_functions(&mut ret);
         ret
@@ -653,7 +518,7 @@ impl Interpreter {
                             return Err(InterpretorError::UnexpectedType(
                                 expr,
                                 "Boolean".to_string(),
-                            ))
+                            ));
                         }
                     };
                 }
@@ -672,7 +537,7 @@ impl Interpreter {
                         Primary::Boolean(true) => {}
                         Primary::Boolean(false) => break,
                         _ => {
-                            return Err(InterpretorError::UnexpectedType(r, "Boolean".to_string()))
+                            return Err(InterpretorError::UnexpectedType(r, "Boolean".to_string()));
                         }
                     };
                     match self.eval_statement(ast, stmt.clone()) {
@@ -765,11 +630,11 @@ impl Interpreter {
         match expr.inner.clone() {
             RTObject::Primary(primary) => match primary {
                 Primary::MySelf => {
-                    if self.mySelf.is_empty() {
+                    if self.my_self.is_empty() {
                         return Err(InterpretorError::FobbiddenTernay);
                     } else {
                         return Ok(LocatedRTObject {
-                            inner: RTObject::Class(self.mySelf.last().unwrap().clone()),
+                            inner: RTObject::Class(self.my_self.last().unwrap().clone()),
                             token_start: 0,
                             token_end: 0,
                         });

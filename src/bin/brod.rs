@@ -1,7 +1,7 @@
 use brod::{
-    interpreter::interpreter::{self, Interpreter, RTObject},
+    interpreter::interpreter::{self, Interpreter},
     lexer::lexer,
-    parser::parser::{ASTBuilder, Primary, AST},
+    parser::parser::{AST, ASTBuilder},
 };
 use clap::Parser;
 use colored::Colorize;
