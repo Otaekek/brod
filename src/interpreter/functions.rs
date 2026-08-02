@@ -45,14 +45,15 @@ impl ResidentFunction {
         if arguments.len() != self.arguments.len() {
             return Err(InterpretorError::InvalidSignature);
         }
+
         interpreter.environment.push();
 
         for (name, value) in self.arguments.iter().zip(arguments.iter()) {
             interpreter.environment.add(name.clone(), value.clone());
         }
-        let ret = interpreter.eval_statement(ast, self.statement.clone())?;
+        let ret = interpreter.eval_statement(ast, self.statement.clone());
         interpreter.environment.pop();
-        Ok(ret)
+        ret
     }
 }
 
@@ -133,6 +134,7 @@ impl Function {
                     .map(|x| x.located(0, 0)),
             }
         };
+
         match ret {
             Err(err) => match err {
                 InterpretorError::Return(ret) => Ok(ret),

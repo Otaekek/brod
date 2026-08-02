@@ -43,3 +43,13 @@ class a {
 
 	var b;
 }
+
+fn fibonacci(a) {
+	if (a < 2) {
+		a;
+	} else {
+		fibonacci(a - 1) + fibonacci(a - 2);
+	}
+}
+
+print(fibonacci(7) == 13);

@@ -37,6 +37,7 @@ pub enum RTObject {
     Primary(Primary),
     Class(Instance),
 }
+
 impl Display for RTObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -164,6 +165,7 @@ impl Environment {
         self.stack.pop();
     }
 }
+
 #[derive(Debug)]
 pub struct Interpreter {
     pub environment: Environment,
@@ -502,7 +504,14 @@ impl Interpreter {
                         Declaration::Comment(_) => continue,
                         _ => (),
                     };
-                    last = self.eval_declaration(ast, declaration)?;
+                    let e_last = self.eval_declaration(ast, declaration);
+                    match e_last {
+                        Ok(r) => last = r,
+                        Err(r) => {
+                            self.environment.pop();
+                            return Err(r);
+                        }
+                    }
                 }
                 self.environment.pop();
                 Ok(last)
@@ -556,6 +565,7 @@ impl Interpreter {
                 } else {
                     RTObject::default().located(0, 0)
                 };
+
                 Err(InterpretorError::Return(item))
             }
         }
