@@ -1,6 +1,7 @@
 use enum_display::EnumDisplay;
 use once_cell::sync::Lazy;
 use std::{collections::HashMap, fmt::Display};
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum SimpleToken {
     LeftParen,
@@ -130,6 +131,7 @@ impl Display for Token {
         }
     }
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocatedToken {
     pub token: Token,
@@ -249,7 +251,7 @@ impl Fsm {
         let both_alpabet = alphabet_l.to_string() + &alphabet_u;
         let digits = "0123456789";
         let alpha_numerical = both_alpabet.clone() + digits;
-        let default = Default;
+        let default = State::Default;
 
         // Character to skip
         self.transitions(" \t\n", Default, (Default, Action::None));
@@ -263,6 +265,7 @@ impl Fsm {
         for (character, token) in single_token_chars.chars().zip(single_token_token) {
             self.transition(character, default, (Default, Action::Push(token)));
         }
+
         // Token that may be either one character or two, like ! and !=
         self.transition('!', Default, (BuildBang, Action::None));
         self.transition('=', BuildBang, (Default, Action::Push(BangEqual)));
