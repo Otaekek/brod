@@ -10,6 +10,9 @@ use std::{fs::read, path::PathBuf, process::exit};
 #[derive(Clone, Debug, Parser)]
 struct CliArgs {
     source_path: Option<PathBuf>,
+    /// After running the script, drop into an interactive prompt sharing its state.
+    #[arg(short, long)]
+    interactive: bool,
 }
 
 use reedline::{DefaultPrompt, Reedline, Signal};
@@ -46,9 +49,8 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
     false
 }
 
-fn run_repl(interpreter: &mut Interpreter) {
+fn run_repl(interpreter: &mut Interpreter, ast: &mut AST) {
     let mut line_editor = Reedline::create();
-    let mut ast = AST::default();
     let prompt = DefaultPrompt::new(
         reedline::DefaultPromptSegment::Basic("Brod".to_string()),
         reedline::DefaultPromptSegment::CurrentDateTime,
@@ -60,21 +62,21 @@ fn run_repl(interpreter: &mut Interpreter) {
                 break;
             }
             Ok(Signal::Success(x)) => {
-                run(&(x + ";"), "prompt".to_string(), interpreter, &mut ast);
+                run(&(x + ";"), "prompt".to_string(), interpreter, ast);
             }
             _ => break,
         }
     }
 }
 
-fn run_file(source: PathBuf, interpreter: &mut Interpreter) {
-    let mut ast = AST::default();
+fn run_file(source: PathBuf, interpreter: &mut Interpreter, ast: &mut AST) {
     let buf = read(&source).unwrap();
     let as_str = String::from_utf8(buf).expect("Only utf-8 encoding is accepted");
-    run(&as_str, source.display().to_string(), interpreter, &mut ast);
+    run(&as_str, source.display().to_string(), interpreter, ast);
 }
 fn main() {
     let mut interpreter = Interpreter::new();
+    let mut ast = AST::default();
     let args = CliArgs::parse();
     if let Some(source) = args.source_path {
         if source.extension().and_then(|ext| ext.to_str()) != Some("brod") {
@@ -82,10 +84,14 @@ fn main() {
             exit(1);
         }
         println!("Running script {} ...", source.display());
-        run_file(source, &mut interpreter);
+        run_file(source, &mut interpreter, &mut ast);
+        if args.interactive {
+            println!("Running prompt ...");
+            run_repl(&mut interpreter, &mut ast);
+        }
     } else {
         println!("Running prompt ...");
-        run_repl(&mut interpreter);
+        run_repl(&mut interpreter, &mut ast);
     }
     // Lexer::new("Source".to_string()).lex();
 }
