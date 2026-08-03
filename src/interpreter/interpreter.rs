@@ -226,6 +226,7 @@ impl Diagnostic for InterpretorError {
             InterpretorError::Return(item) => Some(item.span),
         }
     }
+
     fn message(&self) -> String {
         match self {
             InterpretorError::ForbiddenUnaryOperation(unary, terminal) => {
@@ -345,7 +346,8 @@ impl Interpreter {
                 let expr = self.eval(ast, *expr_id)?;
                 match expr.inner {
                     RTObject::Class(id) => {
-                        let call_span = Span::new(expr.span.start, args_end.unwrap_or(expr.span.end));
+                        let call_span =
+                            Span::new(expr.span.start, args_end.unwrap_or(expr.span.end));
                         match self.instance_arena[id].env.functions.get(name).cloned() {
                             Some(function) => function.call(ast, self, &arguments, call_span),
                             None => Err(InterpretorError::UnknownFunction(name.clone(), None)),
@@ -380,9 +382,7 @@ impl Interpreter {
             crate::parser::parser::Unary::Not(v) => {
                 let last = self.eval(ast, v)?;
                 match last.get_primary()? {
-                    Primary::Boolean(v) => Ok(Primary::Boolean(!v)
-                        .located(last.span)
-                        .to_object()),
+                    Primary::Boolean(v) => Ok(Primary::Boolean(!v).located(last.span).to_object()),
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(
                         unary,
                         Box::new(last),
@@ -392,9 +392,7 @@ impl Interpreter {
             crate::parser::parser::Unary::Minus(v) => {
                 let last = self.eval(ast, v)?;
                 match &last.get_primary()? {
-                    Primary::Number(v) => Ok(Primary::Number(-*v)
-                        .located(last.span)
-                        .to_object()),
+                    Primary::Number(v) => Ok(Primary::Number(-*v).located(last.span).to_object()),
                     _ => Err(InterpretorError::ForbiddenUnaryOperation(
                         unary,
                         Box::new(last),
