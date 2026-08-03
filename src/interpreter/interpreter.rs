@@ -143,7 +143,9 @@ impl Environment {
         }
         // TODO LOCATE
         Err(InterpretorError::UnDeclaredIdentifier(Box::new(
-            Primary::Nil.located(TokenID::new(0), TokenID::new(0)).to_object(),
+            Primary::Identifier(name.clone())
+                .located(TokenID::new(0), TokenID::new(0))
+                .to_object(),
         )))
     }
 
@@ -204,15 +206,11 @@ impl InterpretorError {
     ) -> std::fmt::Result {
         match self {
             InterpretorError::ForbiddenUnaryOperation(unary, terminal) => {
-                write!(
-                    f,
-                    "Forbiden operator: {} on type {:#?}",
-                    unary, terminal.inner
-                )
+                write!(f, "Forbidden operator: {} on {}", unary, terminal.inner)
             }
             InterpretorError::ForbiddenBinaryOperation(operator, terminal, terminal1) => write!(
                 f,
-                "Forbiden operator: {} on type {:#?} and {:#?} in file {} from {} to {}",
+                "Forbidden operator: {} on {} and {} in file {} from {} to {}",
                 operator,
                 terminal.inner,
                 terminal1.inner,
@@ -226,12 +224,16 @@ impl InterpretorError {
                 "left hand side of a ternary should be a boolean or a number"
             ),
             InterpretorError::UnDeclaredIdentifier(v) => {
-                write!(f, "Undeclared Variable {:#?}", v.inner)
+                let name = match &v.inner {
+                    RTObject::Primary(Primary::Identifier(s)) => s.clone(),
+                    other => other.to_string(),
+                };
+                write!(f, "Undeclared variable: {}", name)
             }
             InterpretorError::UnexpectedType(located_primary, expected) => {
                 write!(
                     f,
-                    "Invalid type: {:#?}, Expected : {}",
+                    "Invalid type: {}, Expected : {}",
                     located_primary.inner, expected
                 )
             }
@@ -240,19 +242,19 @@ impl InterpretorError {
                 write!(f, "{}", "Continue should be in while loop")
             }
             InterpretorError::NotCallable(located_primary) => {
-                write!(f, "{:#?} is not callable", located_primary)
+                write!(f, "{} is not callable", located_primary.inner)
             }
             InterpretorError::InvalidSignature => {
                 write!(f, "invalid number of arguments")
             }
             InterpretorError::UnknownFunction(name) => {
-                write!(f, "unknown function {}", name)
+                write!(f, "unknown function: {}", name)
             }
             InterpretorError::Return(_) => {
                 write!(f, "{}", "invalid return: return should be in function")
             }
             InterpretorError::Ungetable(located_rtobject) => {
-                write!(f, "{:#?} is not getable", located_rtobject)
+                write!(f, "{} is not getable", located_rtobject.inner)
             }
         }
     }
@@ -313,27 +315,37 @@ impl Interpreter {
             .map(|expr_id| Ok(self.eval(ast, *expr_id)?.inner))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let function = match &ast.expr_arena[function_call.func] {
+        match &ast.expr_arena[function_call.func] {
             crate::parser::parser::Expr::Terminal(located_primary) => {
                 let callee = match &located_primary.inner {
                     Primary::Identifier(s) => s,
-                    _ => return Err(InterpretorError::FobbiddenTernay),
+                    _ => {
+                        return Err(InterpretorError::NotCallable(Box::new(
+                            located_primary.clone().to_object(),
+                        )));
+                    }
                 };
-                let function = self.environment.functions.get(callee).cloned();
-                function
+                match self.environment.functions.get(callee).cloned() {
+                    Some(function) => function.call(ast, self, &arguments),
+                    None => Err(InterpretorError::UnknownFunction(callee.clone())),
+                }
             }
             crate::parser::parser::Expr::Get(expr_id, name) => {
                 let expr = self.eval(ast, *expr_id)?;
                 match expr.inner {
-                    RTObject::Class(id) => self.instance_arena[id].env.functions.get(name).cloned(),
+                    RTObject::Class(id) => {
+                        match self.instance_arena[id].env.functions.get(name).cloned() {
+                            Some(function) => function.call(ast, self, &arguments),
+                            None => Err(InterpretorError::UnknownFunction(name.clone())),
+                        }
+                    }
                     _ => unreachable!(),
                 }
             }
-            _ => return Err(InterpretorError::FobbiddenTernay),
-        };
-        match function {
-            Some(function) => function.call(ast, self, &arguments),
-            None => Err(InterpretorError::UnknownFunction("callee".to_string())),
+            _ => {
+                let evaluated = self.eval(ast, function_call.func)?;
+                Err(InterpretorError::NotCallable(Box::new(evaluated)))
+            }
         }
     }
     pub fn new() -> Self {

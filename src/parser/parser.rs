@@ -167,6 +167,8 @@ pub enum ASTError {
     NoConstructor(String),
     TooManyArguments,
     TokenError(LocatedToken, Vec<SimpleToken>),
+    ExpectedExpression(LocatedToken),
+    ExpectedIdentifier(LocatedToken),
     BinaryNoLeft(LocatedToken),
     RValueAssignment(ExprID),
 }
@@ -188,8 +190,18 @@ impl ASTError {
             ASTError::Eof => write!(f, "{}", "Unexpected End Of File"),
             ASTError::TokenError(located_token, expected) => write!(
                 f,
-                "Unexpected token \"{}\" at {}:{}:{}, expected {:#?}",
+                "Unexpected token \"{}\" at {}:{}:{}, expected {:?}",
                 located_token.token, source, located_token.line, located_token.row, expected
+            ),
+            ASTError::ExpectedExpression(located_token) => write!(
+                f,
+                "Unexpected token \"{}\" at {}:{}:{}, expected an expression (a number, string, identifier, `(...)`, `self`, `true`, `false`, or `nil`)",
+                located_token.token, source, located_token.line, located_token.row
+            ),
+            ASTError::ExpectedIdentifier(located_token) => write!(
+                f,
+                "Unexpected token \"{}\" at {}:{}:{}, expected an identifier",
+                located_token.token, source, located_token.line, located_token.row
             ),
             ASTError::BinaryNoLeft(located_token) => write!(
                 f,
@@ -333,7 +345,13 @@ impl<'a> ASTBuilder<'a> {
                 fields.push(self.get_identifier_string()?);
                 self.consume(SimpleToken::SemiColon)?;
             } else {
-                return Err(ASTError::TokenError(self.current(0), vec![]));
+                return Err(ASTError::TokenError(
+                    self.current(0),
+                    vec![
+                        SimpleToken::KeyWord(KeyWordType::Fun),
+                        SimpleToken::KeyWord(KeyWordType::Var),
+                    ],
+                ));
             }
         }
         if constructor.is_none() {
@@ -373,9 +391,9 @@ impl<'a> ASTBuilder<'a> {
         match primary {
             Expr::Terminal(located_primary) => match &located_primary.inner {
                 Primary::Identifier(s) => Ok(s.clone()),
-                _ => return Err(ASTError::Eof),
+                _ => return Err(ASTError::ExpectedIdentifier(self.current(-1))),
             },
-            _ => return Err(ASTError::Eof),
+            _ => return Err(ASTError::ExpectedIdentifier(self.current(-1))),
         }
     }
 
@@ -487,8 +505,7 @@ impl<'a> ASTBuilder<'a> {
         let right = self.expression()?;
         match ident {
             Token::Identifier(s) => return Ok(Declaration::VarDecl(s, right)),
-            // TODO: Expected identifier
-            _ => Err(self.error_token(-3, vec![])),
+            _ => Err(ASTError::ExpectedIdentifier(self.current(-3))),
         }
     }
 
@@ -670,7 +687,7 @@ impl<'a> ASTBuilder<'a> {
             match p {
                 SimpleToken::Bang => Ok(self.emit(Expr::Unary(Unary::Not(expr)))),
                 SimpleToken::Minus => Ok(self.emit(Expr::Unary(Unary::Minus(expr)))),
-                _ => return Err(self.error_token(-1, vec![SimpleToken::Bang, SimpleToken::Minus])),
+                _ => unreachable!(),
             }
         } else {
             self.function_call()
@@ -735,28 +752,14 @@ impl<'a> ASTBuilder<'a> {
                     KeyWordType::False => Ok(self.emit_primary(Primary::Boolean(false), 0)),
                     KeyWordType::True => Ok(self.emit_primary(Primary::Boolean(true), 0)),
                     KeyWordType::Nil => Ok(self.emit_primary(Primary::Nil, 0)),
-                    _ => Err(self.error_token(
-                        -1,
-                        vec![
-                            SimpleToken::KeyWord(KeyWordType::True),
-                            SimpleToken::KeyWord(KeyWordType::False),
-                            SimpleToken::KeyWord(KeyWordType::Nil),
-                        ],
-                    )),
+                    _ => Err(ASTError::ExpectedExpression(self.current(-1))),
                 },
-                _ => Err(self.error_token(
-                    -1,
-                    vec![
-                        SimpleToken::KeyWord(KeyWordType::True),
-                        SimpleToken::KeyWord(KeyWordType::False),
-                        SimpleToken::KeyWord(KeyWordType::Nil),
-                    ],
-                )),
+                _ => Err(ASTError::ExpectedExpression(self.current(-1))),
             },
             Token::Identifier(s) => Ok(self.emit_primary(Primary::Identifier(s), 0)),
             Token::StringLitteral(s) => Ok(self.emit_primary(Primary::String(s), 0)),
             Token::Number(n) => Ok(self.emit_primary(Primary::Number(n), 0)),
-            Token::Comment(_) => Err(self.error_token(-1, vec![])),
+            Token::Comment(_) => Err(ASTError::ExpectedExpression(self.current(-1))),
         }
     }
 
