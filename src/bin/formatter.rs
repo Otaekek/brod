@@ -67,7 +67,7 @@ fn display_expression(ast: &AST, expr: &Expr, indent: usize) {
             print!(" || ");
             display_expression(ast, &ast.expr_arena[logical_or.right], indent);
         }
-        Expr::Assignment(left, right) => {
+        Expr::Assignment(left, _, right) => {
             print!("{} = ", left);
             display_expression(ast, &ast.expr_arena[*right], indent);
         }

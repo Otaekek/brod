@@ -109,7 +109,7 @@ pub enum Expr {
     Ternary(Ternary),
     LogicalAnd(LogicalAnd),
     LogicalOr(LogicalOr),
-    Assignment(String, ExprID),
+    Assignment(String, Span, ExprID),
     FunctionCall(FunctionCall),
     Get(ExprID, String),
 }
@@ -417,14 +417,16 @@ impl<'a> ASTBuilder<'a> {
             .my_match(&[SimpleToken::KeyWord(KeyWordType::Break)])
             .is_some()
         {
+            let token = self.current(-1);
             self.consume(SimpleToken::SemiColon)?;
-            Ok(Statement::Break(self.current(-1)))
+            Ok(Statement::Break(token))
         } else if self
             .my_match(&[SimpleToken::KeyWord(KeyWordType::Continue)])
             .is_some()
         {
+            let token = self.current(-1);
             self.consume(SimpleToken::SemiColon)?;
-            Ok(Statement::Continue(self.current(-1)))
+            Ok(Statement::Continue(token))
         } else if self
             .my_match(&[SimpleToken::KeyWord(KeyWordType::Return)])
             .is_some()
@@ -537,7 +539,7 @@ impl<'a> ASTBuilder<'a> {
             match &self.ast.expr_arena[left] {
                 Expr::Terminal(located_primary) => match &located_primary.inner {
                     Primary::Identifier(s) => {
-                        return Ok(self.emit(Expr::Assignment(s.clone(), right)))
+                        return Ok(self.emit(Expr::Assignment(s.clone(), located_primary.span, right)))
                     }
                     _ => return Err(ASTError::RValueAssignment(left)),
                 },

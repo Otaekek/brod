@@ -32,6 +32,7 @@ impl ForeignFunction {
 
 #[derive(Clone, Debug)]
 pub struct ResidentFunction {
+    pub name: String,
     pub arguments: Vec<String>,
     pub statement: Statement,
 }
@@ -42,9 +43,15 @@ impl ResidentFunction {
         ast: &AST,
         interpreter: &mut Interpreter,
         arguments: &[RTObject],
+        call_span: Span,
     ) -> Result<RTObject, InterpretorError> {
         if arguments.len() != self.arguments.len() {
-            return Err(InterpretorError::InvalidSignature);
+            return Err(InterpretorError::InvalidSignature {
+                name: self.name.clone(),
+                expected: self.arguments.len(),
+                actual: arguments.len(),
+                span: Some(call_span),
+            });
         }
 
         interpreter.environment.push();
@@ -68,6 +75,7 @@ impl ConstructorFunction {
         ast: &AST,
         interpreter: &mut Interpreter,
         arguments: &[RTObject],
+        call_span: Span,
     ) -> Result<RTObject, InterpretorError> {
         let mut env = Environment::new();
         for n in &self.class.fields {
@@ -77,6 +85,7 @@ impl ConstructorFunction {
             env.functions.insert(
                 f.name.clone(),
                 std::rc::Rc::new(Function::Resident(ResidentFunction {
+                    name: f.name.clone(),
                     arguments: f.arguments.clone(),
                     statement: f.statement.clone(),
                 })),
@@ -89,7 +98,12 @@ impl ConstructorFunction {
         });
         interpreter.my_self.push(id);
         if arguments.len() != self.class.constructor.arguments.len() {
-            return Err(InterpretorError::InvalidSignature);
+            return Err(InterpretorError::InvalidSignature {
+                name: self.class.name.clone(),
+                expected: self.class.constructor.arguments.len(),
+                actual: arguments.len(),
+                span: Some(call_span),
+            });
         }
         interpreter.environment.push();
 
@@ -122,19 +136,19 @@ impl Function {
         ast: &AST,
         interpreter: &mut Interpreter,
         arguments: &[RTObject],
+        call_span: Span,
     ) -> Result<LocatedRTObject, InterpretorError> {
-        // TODO: Locate callee
         let ret = {
             match self {
                 Function::Foreign(foreign_function) => foreign_function
                     .call(arguments, &mut interpreter.environment)
-                    .map(|x| x.located(Span::point(0))),
+                    .map(|x| x.located(call_span)),
                 Function::Resident(resident_function) => resident_function
-                    .call(ast, interpreter, arguments)
-                    .map(|x| x.located(Span::point(0))),
+                    .call(ast, interpreter, arguments, call_span)
+                    .map(|x| x.located(call_span)),
                 Function::Constructor(constructor_function) => constructor_function
-                    .call(ast, interpreter, arguments)
-                    .map(|x| x.located(Span::point(0))),
+                    .call(ast, interpreter, arguments, call_span)
+                    .map(|x| x.located(call_span)),
             }
         };
 

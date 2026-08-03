@@ -66,13 +66,13 @@ impl LocatedRTObject {
     pub fn get_primary(&self) -> Result<&Primary, InterpretorError> {
         match &self.inner {
             RTObject::Primary(primary) => Ok(&primary),
-            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay),
+            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay(Some(self.span))),
         }
     }
     pub fn get_located_primary(self) -> Result<LocatedPrimary, InterpretorError> {
         match self.inner {
             RTObject::Primary(primary) => Ok(primary.located(self.span)),
-            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay),
+            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay(Some(self.span))),
         }
     }
 }
@@ -81,7 +81,7 @@ impl RTObject {
     pub fn get_primary(&self) -> Result<&Primary, InterpretorError> {
         match &self {
             RTObject::Primary(primary) => Ok(&primary),
-            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay),
+            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay(None)),
         }
     }
     pub fn located(self, span: Span) -> LocatedRTObject {
@@ -125,7 +125,12 @@ impl Environment {
         false
     }
 
-    pub fn assign(&mut self, name: &String, value: &RTObject) -> Result<(), InterpretorError> {
+    pub fn assign(
+        &mut self,
+        name: &String,
+        value: &RTObject,
+        ident_span: Span,
+    ) -> Result<(), InterpretorError> {
         let last = self.stack.len();
         for i in 0..self.stack.len() {
             let r = self.stack[last - i - 1].get(name);
@@ -135,10 +140,9 @@ impl Environment {
                 return Ok(());
             }
         }
-        // TODO LOCATE
         Err(InterpretorError::UnDeclaredIdentifier(Box::new(
             Primary::Identifier(name.clone())
-                .located(Span::point(0))
+                .located(ident_span)
                 .to_object(),
         )))
     }
@@ -181,15 +185,21 @@ pub enum InterpretorError {
     UnexpectedType(Box<LocatedRTObject>, String),
     ForbiddenUnaryOperation(Unary, Box<LocatedRTObject>),
     ForbiddenBinaryOperation(Operator, Box<LocatedRTObject>, Box<LocatedRTObject>),
-    FobbiddenTernay,
-    ForbidenBreak,
+    FobbiddenTernay(Option<Span>),
+    ForbidenBreak(Span),
     NotCallable(Box<LocatedRTObject>),
     UnknownFunction(String, Option<Span>),
-    InvalidSignature,
-    ForbidenContinue,
+    InvalidSignature {
+        name: String,
+        expected: usize,
+        actual: usize,
+        span: Option<Span>,
+    },
+    ForbidenContinue(Span),
     Ungetable(Box<LocatedRTObject>),
     Return(LocatedRTObject),
     UnDeclaredIdentifier(Box<LocatedRTObject>),
+    SelfOutsideConstructor(Option<Span>),
 }
 impl Diagnostic for InterpretorError {
     fn stage(&self) -> Stage {
@@ -207,11 +217,13 @@ impl Diagnostic for InterpretorError {
                 left.span.end.max(right.span.end),
             )),
             InterpretorError::UnknownFunction(_, span) => *span,
-            InterpretorError::FobbiddenTernay
-            | InterpretorError::ForbidenBreak
-            | InterpretorError::ForbidenContinue
-            | InterpretorError::InvalidSignature
-            | InterpretorError::Return(_) => None,
+            InterpretorError::InvalidSignature { span, .. } => *span,
+            InterpretorError::ForbidenBreak(span) | InterpretorError::ForbidenContinue(span) => {
+                Some(*span)
+            }
+            InterpretorError::FobbiddenTernay(span) => *span,
+            InterpretorError::SelfOutsideConstructor(span) => *span,
+            InterpretorError::Return(item) => Some(item.span),
         }
     }
     fn message(&self) -> String {
@@ -223,8 +235,11 @@ impl Diagnostic for InterpretorError {
                 "Forbidden operator: {} on {} and {}",
                 operator, terminal.inner, terminal1.inner
             ),
-            InterpretorError::FobbiddenTernay => {
+            InterpretorError::FobbiddenTernay(_) => {
                 "left hand side of a ternary should be a boolean or a number".to_string()
+            }
+            InterpretorError::SelfOutsideConstructor(_) => {
+                "self can only be used inside a constructor".to_string()
             }
             InterpretorError::UnDeclaredIdentifier(v) => {
                 let name = match &v.inner {
@@ -239,12 +254,23 @@ impl Diagnostic for InterpretorError {
                     located_primary.inner, expected
                 )
             }
-            InterpretorError::ForbidenBreak => "Break should be in while loop".to_string(),
-            InterpretorError::ForbidenContinue => "Continue should be in while loop".to_string(),
+            InterpretorError::ForbidenBreak(_) => "Break should be in while loop".to_string(),
+            InterpretorError::ForbidenContinue(_) => "Continue should be in while loop".to_string(),
             InterpretorError::NotCallable(located_primary) => {
                 format!("{} is not callable", located_primary.inner)
             }
-            InterpretorError::InvalidSignature => "invalid number of arguments".to_string(),
+            InterpretorError::InvalidSignature {
+                name,
+                expected,
+                actual,
+                ..
+            } => format!(
+                "{} expects {} argument{}, got {}",
+                name,
+                expected,
+                if *expected == 1 { "" } else { "s" },
+                actual
+            ),
             InterpretorError::UnknownFunction(name, _) => format!("unknown function: {}", name),
             InterpretorError::Return(_) => {
                 "invalid return: return should be in function".to_string()
@@ -259,8 +285,9 @@ impl Diagnostic for InterpretorError {
 impl Interpreter {
     pub fn declare_function(&mut self, definition: FunctionDefinition) {
         self.environment.functions.insert(
-            definition.name,
+            definition.name.clone(),
             Rc::new(Function::Resident(ResidentFunction {
+                name: definition.name,
                 arguments: definition.arguments,
                 statement: definition.statement,
             })),
@@ -284,11 +311,13 @@ impl Interpreter {
         ast: &AST,
         function_call: &FunctionCall,
     ) -> Result<LocatedRTObject, InterpretorError> {
-        let arguments = function_call
+        let evaluated_args = function_call
             .arguments
             .iter()
-            .map(|expr_id| Ok(self.eval(ast, *expr_id)?.inner))
+            .map(|expr_id| self.eval(ast, *expr_id))
             .collect::<Result<Vec<_>, _>>()?;
+        let args_end = evaluated_args.iter().map(|v| v.span.end).max();
+        let arguments: Vec<RTObject> = evaluated_args.into_iter().map(|v| v.inner).collect();
 
         match &ast.expr_arena[function_call.func] {
             crate::parser::parser::Expr::Terminal(located_primary) => {
@@ -300,8 +329,12 @@ impl Interpreter {
                         )));
                     }
                 };
+                let call_span = Span::new(
+                    located_primary.span.start,
+                    args_end.unwrap_or(located_primary.span.end),
+                );
                 match self.environment.functions.get(callee).cloned() {
-                    Some(function) => function.call(ast, self, &arguments),
+                    Some(function) => function.call(ast, self, &arguments, call_span),
                     None => Err(InterpretorError::UnknownFunction(
                         callee.clone(),
                         Some(located_primary.span),
@@ -312,8 +345,9 @@ impl Interpreter {
                 let expr = self.eval(ast, *expr_id)?;
                 match expr.inner {
                     RTObject::Class(id) => {
+                        let call_span = Span::new(expr.span.start, args_end.unwrap_or(expr.span.end));
                         match self.instance_arena[id].env.functions.get(name).cloned() {
-                            Some(function) => function.call(ast, self, &arguments),
+                            Some(function) => function.call(ast, self, &arguments, call_span),
                             None => Err(InterpretorError::UnknownFunction(name.clone(), None)),
                         }
                     }
@@ -557,15 +591,15 @@ impl Interpreter {
                         }
                     };
                     match self.eval_statement(ast, &ast.statement_arena[*stmt_id]) {
-                        Err(InterpretorError::ForbidenBreak) => break,
-                        Err(InterpretorError::ForbidenContinue) => continue,
+                        Err(InterpretorError::ForbidenBreak(_)) => break,
+                        Err(InterpretorError::ForbidenContinue(_)) => continue,
                         _ => {}
                     };
                 }
                 Ok(RTObject::default())
             }
-            Statement::Break(_) => Err(InterpretorError::ForbidenBreak),
-            Statement::Continue(_) => Err(InterpretorError::ForbidenContinue),
+            Statement::Break(token) => Err(InterpretorError::ForbidenBreak(token.span)),
+            Statement::Continue(token) => Err(InterpretorError::ForbidenContinue(token.span)),
             Statement::Return(item) => {
                 let item = if let Some(item) = item {
                     self.eval(ast, *item)?
@@ -607,7 +641,7 @@ impl Interpreter {
                         true => self.eval(ast, ternary.middle),
                         false => self.eval(ast, ternary.right),
                     },
-                    _ => Err(InterpretorError::FobbiddenTernay),
+                    _ => Err(InterpretorError::FobbiddenTernay(Some(left.span))),
                 }
             }
             crate::parser::parser::Expr::LogicalAnd(logical_and) => {
@@ -615,7 +649,7 @@ impl Interpreter {
                 match &left.get_primary()? {
                     Primary::Boolean(false) => return Ok(left),
                     Primary::Boolean(true) => return self.eval(ast, logical_and.right),
-                    _ => return Err(InterpretorError::FobbiddenTernay),
+                    _ => return Err(InterpretorError::FobbiddenTernay(Some(left.span))),
                 }
             }
             crate::parser::parser::Expr::LogicalOr(logical_or) => {
@@ -623,12 +657,12 @@ impl Interpreter {
                 match &left.get_primary()? {
                     Primary::Boolean(true) => return Ok(left),
                     Primary::Boolean(false) => return self.eval(ast, logical_or.right),
-                    _ => return Err(InterpretorError::FobbiddenTernay),
+                    _ => return Err(InterpretorError::FobbiddenTernay(Some(left.span))),
                 }
             }
-            crate::parser::parser::Expr::Assignment(s, expr) => {
+            crate::parser::parser::Expr::Assignment(s, ident_span, expr) => {
                 let expr = self.eval(ast, *expr)?;
-                self.environment.assign(s, &expr.inner)?;
+                self.environment.assign(s, &expr.inner, *ident_span)?;
                 Ok(expr)
             }
             crate::parser::parser::Expr::FunctionCall(function_call) => {
@@ -648,24 +682,21 @@ impl Interpreter {
             RTObject::Primary(primary) => match primary {
                 Primary::MySelf => {
                     if self.my_self.is_empty() {
-                        return Err(InterpretorError::FobbiddenTernay);
+                        return Err(InterpretorError::SelfOutsideConstructor(Some(expr.span)));
                     } else {
                         return Ok(LocatedRTObject {
                             inner: RTObject::Class(*self.my_self.last().unwrap()),
-                            span: Span::point(0),
+                            span: expr.span,
                         });
                     }
                 }
                 Primary::Identifier(_) => unreachable!("Should be evaluated already"),
                 _ => Err(InterpretorError::Ungetable(Box::new(expr))),
             },
-            RTObject::Class(id) => {
-                // TODO: Locate
-                self.instance_arena[id]
-                    .env
-                    .get(name, &expr.inner.located(Span::point(0)))
-                    .map(|x| x.located(Span::point(0)))
-            }
+            RTObject::Class(id) => self.instance_arena[id]
+                .env
+                .get(name, &expr.inner.clone().located(expr.span))
+                .map(|x| x.located(expr.span)),
         }
     }
 }

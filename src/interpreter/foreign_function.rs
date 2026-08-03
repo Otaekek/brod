@@ -9,21 +9,21 @@ use crate::{
 pub fn sin(input: &[RTObject], _env: &mut Environment) -> Result<RTObject, InterpretorError> {
     match input[0].get_primary()? {
         Primary::Number(n) => Ok(Primary::Number(n.sin()).to_object()),
-        _ => Err(InterpretorError::FobbiddenTernay),
+        _ => Err(InterpretorError::FobbiddenTernay(None)),
     }
 }
 
 pub fn cos(input: &[RTObject], _env: &mut Environment) -> Result<RTObject, InterpretorError> {
     match input[0].get_primary()? {
         Primary::Number(n) => Ok(Primary::Number(n.cos()).to_object()),
-        _ => Err(InterpretorError::FobbiddenTernay),
+        _ => Err(InterpretorError::FobbiddenTernay(None)),
     }
 }
 
 pub fn abs(input: &[RTObject], _env: &mut Environment) -> Result<RTObject, InterpretorError> {
     match input[0].get_primary()? {
         Primary::Number(n) => Ok(Primary::Number(n.abs()).to_object()),
-        _ => Err(InterpretorError::FobbiddenTernay),
+        _ => Err(InterpretorError::FobbiddenTernay(None)),
     }
 }
 
