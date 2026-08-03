@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use crate::arena::{Arena, Id};
 use crate::lexer::lexer::{KeyWordType, LocatedToken, SimpleToken, Token, TokenVec};
 
 #[derive(Copy, Clone, Debug, PartialEq, enum_display::EnumDisplay)]
@@ -15,9 +16,9 @@ pub enum Operator {
     Slash,
     Star,
 }
-pub type ExprID = usize;
-pub type StatementID = usize;
-pub type TokenID = usize;
+pub type ExprID = Id<Expr>;
+pub type StatementID = Id<Statement>;
+pub type TokenID = Id<LocatedToken>;
 
 #[derive(Copy, Clone, Debug, enum_display::EnumDisplay)]
 pub enum Unary {
@@ -43,7 +44,7 @@ pub enum Primary {
     Nil,
 }
 impl Primary {
-    pub fn located(self, token_start: usize, token_end: usize) -> LocatedPrimary {
+    pub fn located(self, token_start: TokenID, token_end: TokenID) -> LocatedPrimary {
         LocatedPrimary {
             inner: self,
             token_start,
@@ -144,8 +145,8 @@ pub enum Statement {
 #[derive(Clone, Debug, Default)]
 pub struct AST {
     pub _tokens: TokenVec,
-    pub expr_arena: Vec<Expr>,
-    pub statement_arena: Vec<Statement>,
+    pub expr_arena: Arena<Expr>,
+    pub statement_arena: Arena<Statement>,
     pub roots: Vec<Declaration>,
 }
 
@@ -153,8 +154,8 @@ impl AST {
     pub fn new(tokens: TokenVec) -> Self {
         Self {
             _tokens: tokens,
-            expr_arena: Vec::with_capacity(4096),
-            statement_arena: Vec::with_capacity(4096),
+            expr_arena: Arena::with_capacity(4096),
+            statement_arena: Arena::with_capacity(4096),
             roots: vec![],
         }
     }
@@ -242,20 +243,17 @@ pub struct ASTBuilder<'a> {
 /// binary error production
 impl<'a> ASTBuilder<'a> {
     fn emit(&mut self, expr: Expr) -> ExprID {
-        self.ast.expr_arena.push(expr);
-        self.ast.expr_arena.len() - 1
+        self.ast.expr_arena.alloc(expr)
     }
     fn emit_statment(&mut self, statement: Statement) -> StatementID {
-        self.ast.statement_arena.push(statement);
-        self.ast.statement_arena.len() - 1
+        self.ast.statement_arena.alloc(statement)
     }
     fn emit_primary(&mut self, primary: Primary, offset: i64) -> ExprID {
-        self.ast.expr_arena.push(Expr::Terminal(LocatedPrimary {
+        self.ast.expr_arena.alloc(Expr::Terminal(LocatedPrimary {
             inner: primary,
-            token_start: self.current_index + offset as usize,
-            token_end: self.current_index + offset as usize,
-        }));
-        self.ast.expr_arena.len() - 1
+            token_start: TokenID::new(self.current_index + offset as usize),
+            token_end: TokenID::new(self.current_index + offset as usize),
+        }))
     }
 
     fn current(&self, offset: i64) -> LocatedToken {

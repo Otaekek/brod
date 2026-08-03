@@ -2,7 +2,7 @@ use crate::{
     interpreter::interpreter::{
         Environment, Instance, Interpreter, InterpretorError, LocatedRTObject, RTObject,
     },
-    parser::parser::{AST, ClassDefinition, Primary, Statement},
+    parser::parser::{AST, ClassDefinition, Primary, Statement, TokenID},
 };
 #[derive(Clone, Debug)]
 pub struct ForeignFunction {
@@ -127,13 +127,13 @@ impl Function {
             match self {
                 Function::Foreign(foreign_function) => foreign_function
                     .call(arguments, &mut interpreter.environment)
-                    .map(|x| x.located(0, 0)),
+                    .map(|x| x.located(TokenID::new(0), TokenID::new(0))),
                 Function::Resident(resident_function) => resident_function
                     .call(ast, interpreter, arguments)
-                    .map(|x| x.located(0, 0)),
+                    .map(|x| x.located(TokenID::new(0), TokenID::new(0))),
                 Function::Constructor(constructor_function) => constructor_function
                     .call(ast, interpreter, arguments)
-                    .map(|x| x.located(0, 0)),
+                    .map(|x| x.located(TokenID::new(0), TokenID::new(0))),
             }
         };
 

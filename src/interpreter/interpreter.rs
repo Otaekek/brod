@@ -1,3 +1,4 @@
+use crate::arena::{Arena, Id};
 use crate::interpreter::functions::ConstructorFunction;
 use crate::interpreter::functions::ForeignFunction;
 use crate::interpreter::functions::Function;
@@ -32,31 +33,8 @@ impl Display for Instance {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct InstanceId(usize);
-
-#[derive(Debug, Clone, Default)]
-pub struct InstanceArena(Vec<Instance>);
-
-impl InstanceArena {
-    pub fn alloc(&mut self, instance: Instance) -> InstanceId {
-        self.0.push(instance);
-        InstanceId(self.0.len() - 1)
-    }
-}
-
-impl std::ops::Index<InstanceId> for InstanceArena {
-    type Output = Instance;
-    fn index(&self, id: InstanceId) -> &Instance {
-        &self.0[id.0]
-    }
-}
-
-impl std::ops::IndexMut<InstanceId> for InstanceArena {
-    fn index_mut(&mut self, id: InstanceId) -> &mut Instance {
-        &mut self.0[id.0]
-    }
-}
+pub type InstanceId = Id<Instance>;
+pub type InstanceArena = Arena<Instance>;
 
 #[derive(Debug, Clone)]
 pub enum RTObject {
@@ -68,7 +46,7 @@ impl Display for RTObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RTObject::Primary(primary) => write!(f, "{}", primary),
-            RTObject::Class(id) => write!(f, "<instance #{}>", id.0),
+            RTObject::Class(id) => write!(f, "<instance #{}>", id),
         }
     }
 }
@@ -107,7 +85,7 @@ impl RTObject {
             RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay),
         }
     }
-    pub fn located(self, token_start: usize, token_end: usize) -> LocatedRTObject {
+    pub fn located(self, token_start: TokenID, token_end: TokenID) -> LocatedRTObject {
         LocatedRTObject {
             inner: self,
             token_start,
@@ -165,7 +143,7 @@ impl Environment {
         }
         // TODO LOCATE
         Err(InterpretorError::UnDeclaredIdentifier(Box::new(
-            Primary::Nil.located(0, 0).to_object(),
+            Primary::Nil.located(TokenID::new(0), TokenID::new(0)).to_object(),
         )))
     }
 
@@ -600,7 +578,7 @@ impl Interpreter {
                 let item = if let Some(item) = item {
                     self.eval(ast, *item)?
                 } else {
-                    RTObject::default().located(0, 0)
+                    RTObject::default().located(TokenID::new(0), TokenID::new(0))
                 };
 
                 Err(InterpretorError::Return(item))
@@ -682,8 +660,8 @@ impl Interpreter {
                     } else {
                         return Ok(LocatedRTObject {
                             inner: RTObject::Class(*self.my_self.last().unwrap()),
-                            token_start: 0,
-                            token_end: 0,
+                            token_start: TokenID::new(0),
+                            token_end: TokenID::new(0),
                         });
                     }
                 }
@@ -694,8 +672,11 @@ impl Interpreter {
                 // TODO: Locate
                 self.instance_arena[id]
                     .env
-                    .get(name, &expr.inner.located(0, 0))
-                    .map(|x| x.located(0, 0))
+                    .get(
+                        name,
+                        &expr.inner.located(TokenID::new(0), TokenID::new(0)),
+                    )
+                    .map(|x| x.located(TokenID::new(0), TokenID::new(0)))
             }
         }
     }
