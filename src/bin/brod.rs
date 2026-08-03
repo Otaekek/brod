@@ -1,4 +1,5 @@
 use brod::{
+    diagnostic::render,
     interpreter::interpreter::{self, Interpreter},
     lexer::lexer,
     parser::parser::{AST, ASTBuilder},
@@ -18,18 +19,14 @@ struct CliArgs {
 use reedline::{DefaultPrompt, Reedline, Signal};
 
 fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &mut AST) -> bool {
-    let tokens = lexer::lex(source.to_owned(), source_name.clone());
+    let tokens = lexer::lex(source.to_owned());
     if let Err(err) = tokens {
-        eprintln!("{} {}", "Lexing Error:".red(), err);
+        eprintln!("{}", render(&err, source, &source_name));
     } else if let Ok(tokens) = tokens {
         let res = ASTBuilder::parse(tokens, ast);
         // println!("{:#?}", ast);
         for err in &res.1 {
-            eprintln!(
-                "{} {}",
-                "Parsing Error:".red(),
-                err.get_formated_error(&source_name)
-            );
+            eprintln!("{}", render(err, source, &source_name));
         }
         if res.1.is_empty() {
             let result = interpreter::eval(ast.clone(), interpreter);
@@ -37,11 +34,7 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
                 Ok(v) => {
                     println!("{}: {}", "Ok".green(), v)
                 }
-                Err(err) => eprintln!(
-                    "{} {}",
-                    "Runtime Error:".red(),
-                    err.get_formated_error(ast, &source_name)
-                ),
+                Err(err) => eprintln!("{}", render(&err, source, &source_name)),
             }
         }
     }

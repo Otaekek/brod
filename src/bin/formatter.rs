@@ -1,7 +1,7 @@
-use colored::Colorize;
 use std::{fs::read, path::PathBuf, process::exit};
 
 use brod::{
+    diagnostic::render,
     lexer::lexer,
     parser::parser::{
         AST, ASTBuilder, ClassDefinition, Declaration, Expr, FunctionCall, FunctionDefinition,
@@ -210,18 +210,15 @@ pub fn main() {
         let buf = read(&path).unwrap();
         let source = String::from_utf8(buf).expect("Only utf-8 encoding is accepted");
         let mut ast = AST::default();
-        let tokens = lexer::lex(source.to_owned(), path.display().to_string());
+        let source_name = path.display().to_string();
+        let tokens = lexer::lex(source.to_owned());
         if let Err(err) = tokens {
-            eprintln!("{} {}", "Lexing Error:".red(), err);
+            eprintln!("{}", render(&err, &source, &source_name));
         } else if let Ok(tokens) = tokens {
             let res = ASTBuilder::parse(tokens, &mut ast);
 
             for err in &res.1 {
-                eprintln!(
-                    "{} {}",
-                    "Parsing Error:".red(),
-                    err.get_formated_error(&path.display().to_string())
-                );
+                eprintln!("{}", render(err, &source, &source_name));
             }
             if res.1.is_empty() {
                 display_ast(&ast);

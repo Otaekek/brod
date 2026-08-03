@@ -1,3 +1,4 @@
+use crate::diagnostic::{Diagnostic, Span, Stage};
 use enum_display::EnumDisplay;
 use once_cell::sync::Lazy;
 use std::{collections::HashMap, fmt::Display};
@@ -139,8 +140,7 @@ impl Display for Token {
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocatedToken {
     pub token: Token,
-    pub line: usize,
-    pub row: usize,
+    pub span: Span,
 }
 
 impl Display for LocatedToken {
@@ -149,8 +149,8 @@ impl Display for LocatedToken {
     }
 }
 impl LocatedToken {
-    pub fn new(token: Token, line: usize, row: usize) -> Self {
-        Self { token, line, row }
+    pub fn new(token: Token, span: Span) -> Self {
+        Self { token, span }
     }
 }
 
@@ -349,38 +349,43 @@ impl Fsm {
 struct Lexer {
     fsm: Fsm,
     source: String,
-    source_name: String,
     current: usize,
     start: usize,
-    line: usize,
-    row: usize,
     state: State,
     pub tokens: TokenVec,
 }
 
+#[derive(Debug, Clone)]
+pub struct LexError {
+    pub message: String,
+    pub span: Span,
+}
+
+impl Diagnostic for LexError {
+    fn stage(&self) -> Stage {
+        Stage::Lexing
+    }
+    fn span(&self) -> Option<Span> {
+        Some(self.span)
+    }
+    fn message(&self) -> String {
+        self.message.clone()
+    }
+}
+
 impl Lexer {
-    pub fn new(source: String, source_name: String) -> Self {
+    pub fn new(source: String) -> Self {
         let source = source;
         let mut fsm = Fsm::init();
         fsm.build();
         Self {
             fsm: fsm,
             source,
-            source_name,
             tokens: Default::default(),
-            line: 1,
             start: 0,
             current: 0,
             state: State::Default,
-            row: 1,
         }
-    }
-
-    fn error(&self, message: impl Display) -> String {
-        format!(
-            "Lexer: {message} at {}:{}:{}",
-            self.source_name, self.line, self.row
-        )
     }
 
     fn is_at_end(&self) -> bool {
@@ -396,23 +401,27 @@ impl Lexer {
     }
 
     fn go_back(&mut self) {
-        if self.current() == '\n' {
-            self.line -= 1;
-        }
         self.current -= 1;
-        self.row -= 1;
     }
 
-    fn add_token(&mut self, token: Token) {
-        self.tokens
-            .push(LocatedToken::new(token, self.line, self.row));
+    fn span_inclusive(&self) -> Span {
+        Span::new(self.start, self.current + 1)
+    }
+
+    fn span_exclusive(&self) -> Span {
+        Span::new(self.start, self.current)
+    }
+
+    fn add_token(&mut self, token: Token, span: Span) {
+        self.tokens.push(LocatedToken::new(token, span));
     }
 
     fn push_string(&mut self) {
-        self.add_token(Token::StringLitteral(
-            // +1 to remove ""
-            self.source[self.start + 1..self.current].to_string(),
-        ));
+        let span = self.span_inclusive();
+        self.add_token(
+            Token::StringLitteral(self.source[self.start + 1..self.current].to_string()),
+            span,
+        );
     }
     fn _push_escape_in_string(&mut self) {
         todo!();
@@ -421,16 +430,18 @@ impl Lexer {
     fn push_number(&mut self) {
         let s = &self.source[self.start..self.current];
         let number: f64 = s.parse().unwrap();
-        self.add_token(Token::Number(number));
+        let span = self.span_exclusive();
+        self.add_token(Token::Number(number), span);
         self.go_back();
     }
 
     fn push_identifier_or_keyword(&mut self) {
         let s = self.source[self.start..self.current].to_string();
+        let span = self.span_exclusive();
         if let Some(kw) = KEY_WORD_STR.get(s.as_str()) {
-            self.add_token(Token::Single(SimpleToken::KeyWord(*kw)));
+            self.add_token(Token::Single(SimpleToken::KeyWord(*kw)), span);
         } else {
-            self.add_token(Token::Identifier(s));
+            self.add_token(Token::Identifier(s), span);
         }
         self.go_back();
     }
@@ -438,65 +449,61 @@ impl Lexer {
     fn push_comment(&mut self) {
         // start points at the second '/', so +1 skips it to get the comment body
         let text = self.source[self.start + 1..self.current].to_string();
-        self.add_token(Token::Comment(text));
+        let span = self.span_exclusive();
+        self.add_token(Token::Comment(text), span);
     }
 
-    pub fn lex(&mut self) -> Result<(), String> {
+    pub fn lex(&mut self) -> Result<(), LexError> {
         self.source.push(' ');
         while !self.is_at_end() {
-            let c = self.current();
-            if c == '\n' {
-                self.line += 1;
-                self.row = 1;
+            if self.state == State::Default {
+                self.start = self.current;
             }
+            let c = self.current();
             let (new_state, action) = self.fsm.compute(c as u8, self.state);
             match action {
                 Action::None => (),
-                Action::Push(simple_token) => self.add_token(Token::Single(simple_token)),
+                Action::Push(simple_token) => {
+                    let span = self.span_inclusive();
+                    self.add_token(Token::Single(simple_token), span);
+                }
                 Action::PushString => self.push_string(),
                 Action::PushNumber => self.push_number(),
                 Action::PushEscapedInString => self.push_string(),
                 Action::PushIdentifierOrKeyWord => self.push_identifier_or_keyword(),
                 Action::PushComment => self.push_comment(),
                 Action::Error => {
-                    return Err(self.error(format!("Unexpected character \"{c}\"")));
+                    return Err(LexError {
+                        message: format!("Unexpected character \"{c}\""),
+                        span: Span::point(self.current),
+                    });
                 } // Action::Last => {
                 //     if new_state != State::Default {
                 //         self.error("Unexpected EOF, please finish with ;");
                 //     }
                 // }
                 Action::PushAndGoBack(simple_token) => {
-                    self.add_token(Token::Single(simple_token));
+                    let span = self.span_exclusive();
+                    self.add_token(Token::Single(simple_token), span);
                     self.go_back();
                 }
             }
-            if [
-                State::BuildString,
-                State::BuildIdentOrKeyword,
-                State::BuildNumber,
-                State::Comment,
-            ]
-            .contains(&new_state)
-                && new_state != self.state
-            {
-                self.start = self.current;
-            }
             self.state = new_state;
-            self.row += 1;
             self.advance();
         }
         // Flush a comment that ends at EOF with no trailing newline
         if self.state == State::Comment {
             let end = self.source.len() - 1; // exclude the trailing space added above
             let text = self.source[self.start + 1..end].to_string();
-            self.add_token(Token::Comment(text));
+            let span = Span::new(self.start, end);
+            self.add_token(Token::Comment(text), span);
         }
         Ok(())
     }
 }
 
-pub fn lex(source: String, source_name: String) -> Result<TokenVec, String> {
-    let mut lexer = Lexer::new(source, source_name);
+pub fn lex(source: String) -> Result<TokenVec, LexError> {
+    let mut lexer = Lexer::new(source);
     lexer.lex()?;
     Ok(lexer.tokens)
 }

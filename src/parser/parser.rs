@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use crate::arena::{Arena, Id};
+use crate::diagnostic::{Diagnostic, Span, Stage};
 use crate::lexer::lexer::{KeyWordType, LocatedToken, SimpleToken, Token, TokenVec};
 
 #[derive(Copy, Clone, Debug, PartialEq, enum_display::EnumDisplay)]
@@ -18,7 +19,6 @@ pub enum Operator {
 }
 pub type ExprID = Id<Expr>;
 pub type StatementID = Id<Statement>;
-pub type TokenID = Id<LocatedToken>;
 
 #[derive(Copy, Clone, Debug, enum_display::EnumDisplay)]
 pub enum Unary {
@@ -29,9 +29,7 @@ pub enum Unary {
 #[derive(Clone, Debug, PartialEq)]
 pub struct LocatedPrimary {
     pub inner: Primary,
-    // Inclusive range
-    pub token_start: TokenID,
-    pub token_end: TokenID,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -44,12 +42,8 @@ pub enum Primary {
     Nil,
 }
 impl Primary {
-    pub fn located(self, token_start: TokenID, token_end: TokenID) -> LocatedPrimary {
-        LocatedPrimary {
-            inner: self,
-            token_start,
-            token_end,
-        }
+    pub fn located(self, span: Span) -> LocatedPrimary {
+        LocatedPrimary { inner: self, span }
     }
 }
 impl Display for Primary {
@@ -173,61 +167,51 @@ pub enum ASTError {
     RValueAssignment(ExprID),
 }
 
-struct ErrorDisplay<'a> {
-    error: &'a ASTError,
-    source: &'a str,
-}
-
-impl<'a> std::fmt::Display for ErrorDisplay<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.error.format_error(self.source, f)
+impl Diagnostic for ASTError {
+    fn stage(&self) -> Stage {
+        Stage::Parsing
     }
-}
-
-impl ASTError {
-    fn format_error(&self, source: &str, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn span(&self) -> Option<Span> {
         match self {
-            ASTError::Eof => write!(f, "{}", "Unexpected End Of File"),
-            ASTError::TokenError(located_token, expected) => write!(
-                f,
-                "Unexpected token \"{}\" at {}:{}:{}, expected {:?}",
-                located_token.token, source, located_token.line, located_token.row, expected
-            ),
-            ASTError::ExpectedExpression(located_token) => write!(
-                f,
-                "Unexpected token \"{}\" at {}:{}:{}, expected an expression (a number, string, identifier, `(...)`, `self`, `true`, `false`, or `nil`)",
-                located_token.token, source, located_token.line, located_token.row
-            ),
-            ASTError::ExpectedIdentifier(located_token) => write!(
-                f,
-                "Unexpected token \"{}\" at {}:{}:{}, expected an identifier",
-                located_token.token, source, located_token.line, located_token.row
-            ),
-            ASTError::BinaryNoLeft(located_token) => write!(
-                f,
-                "Unexpected token \"{}\" at {}:{}:{}, This Token should have a left and right side",
-                located_token.token, source, located_token.line, located_token.row
-            ),
-            ASTError::RValueAssignment(_) => {
-                write!(f, "Unexpected token assignment should have a lvalue",)
-            }
-            ASTError::TooManyArguments => write!(
-                f,
-                "{}",
-                "Too many argument for function call, maximum is 255"
-            ),
-            ASTError::NoConstructor(name) => write!(f, "Class {} has no constructor", name),
+            ASTError::TokenError(located_token, _)
+            | ASTError::ExpectedExpression(located_token)
+            | ASTError::ExpectedIdentifier(located_token)
+            | ASTError::BinaryNoLeft(located_token) => Some(located_token.span),
+            ASTError::Eof
+            | ASTError::NoConstructor(_)
+            | ASTError::TooManyArguments
+            | ASTError::RValueAssignment(_) => None,
         }
     }
-
-    pub fn get_formated_error(&self, source: &str) -> String {
-        format!(
-            "{}",
-            ErrorDisplay {
-                error: self,
-                source
+    fn message(&self) -> String {
+        match self {
+            ASTError::Eof => "Unexpected End Of File".to_string(),
+            ASTError::TokenError(located_token, expected) => {
+                format!(
+                    "Unexpected token \"{}\", expected {:?}",
+                    located_token.token, expected
+                )
             }
-        )
+            ASTError::ExpectedExpression(located_token) => format!(
+                "Unexpected token \"{}\", expected an expression (a number, string, identifier, `(...)`, `self`, `true`, `false`, or `nil`)",
+                located_token.token
+            ),
+            ASTError::ExpectedIdentifier(located_token) => format!(
+                "Unexpected token \"{}\", expected an identifier",
+                located_token.token
+            ),
+            ASTError::BinaryNoLeft(located_token) => format!(
+                "Unexpected token \"{}\", this token should have a left and right side",
+                located_token.token
+            ),
+            ASTError::RValueAssignment(_) => {
+                "Unexpected token, assignment should have a lvalue".to_string()
+            }
+            ASTError::TooManyArguments => {
+                "Too many arguments for function call, maximum is 255".to_string()
+            }
+            ASTError::NoConstructor(name) => format!("Class {} has no constructor", name),
+        }
     }
 }
 
@@ -261,11 +245,12 @@ impl<'a> ASTBuilder<'a> {
         self.ast.statement_arena.alloc(statement)
     }
     fn emit_primary(&mut self, primary: Primary, offset: i64) -> ExprID {
-        self.ast.expr_arena.alloc(Expr::Terminal(LocatedPrimary {
-            inner: primary,
-            token_start: TokenID::new(self.current_index + offset as usize),
-            token_end: TokenID::new(self.current_index + offset as usize),
-        }))
+        // `advance()` increments `current_index` before returning the token
+        // it consumed, so "the token this primary came from" is one behind.
+        let span = self.tokens.tokens[(self.current_index as i64 - 1 + offset) as usize].span;
+        self.ast
+            .expr_arena
+            .alloc(Expr::Terminal(LocatedPrimary { inner: primary, span }))
     }
 
     fn current(&self, offset: i64) -> LocatedToken {
