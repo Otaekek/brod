@@ -9,7 +9,7 @@ use crate::{
         LocatedPrimary, Operator, Primary, Statement, TokenID, Unary,
     },
 };
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, rc::Rc};
 impl LocatedPrimary {
     pub fn to_object(self) -> LocatedRTObject {
         RTObject::Primary(self.inner.clone()).locate_with(&self)
@@ -32,17 +32,43 @@ impl Display for Instance {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InstanceId(usize);
+
+#[derive(Debug, Clone, Default)]
+pub struct InstanceArena(Vec<Instance>);
+
+impl InstanceArena {
+    pub fn alloc(&mut self, instance: Instance) -> InstanceId {
+        self.0.push(instance);
+        InstanceId(self.0.len() - 1)
+    }
+}
+
+impl std::ops::Index<InstanceId> for InstanceArena {
+    type Output = Instance;
+    fn index(&self, id: InstanceId) -> &Instance {
+        &self.0[id.0]
+    }
+}
+
+impl std::ops::IndexMut<InstanceId> for InstanceArena {
+    fn index_mut(&mut self, id: InstanceId) -> &mut Instance {
+        &mut self.0[id.0]
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RTObject {
     Primary(Primary),
-    Class(Instance),
+    Class(InstanceId),
 }
 
 impl Display for RTObject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RTObject::Primary(primary) => write!(f, "{}", primary),
-            RTObject::Class(instance) => write!(f, "{}", instance),
+            RTObject::Class(id) => write!(f, "<instance #{}>", id.0),
         }
     }
 }
@@ -99,7 +125,7 @@ impl RTObject {
 #[derive(Debug, Clone)]
 pub struct Environment {
     stack: Vec<HashMap<String, RTObject>>,
-    pub functions: HashMap<String, Function>,
+    pub functions: HashMap<String, Rc<Function>>,
 }
 
 impl Environment {
@@ -138,9 +164,9 @@ impl Environment {
             }
         }
         // TODO LOCATE
-        Err(InterpretorError::UnDeclaredIdentifier(
+        Err(InterpretorError::UnDeclaredIdentifier(Box::new(
             Primary::Nil.located(0, 0).to_object(),
-        ))
+        )))
     }
 
     pub fn get(
@@ -156,7 +182,9 @@ impl Environment {
             }
         }
 
-        Err(InterpretorError::UnDeclaredIdentifier(ident.clone()))
+        Err(InterpretorError::UnDeclaredIdentifier(Box::new(
+            ident.clone(),
+        )))
     }
     pub fn push(&mut self) {
         self.stack.push(HashMap::new());
@@ -169,24 +197,25 @@ impl Environment {
 #[derive(Debug)]
 pub struct Interpreter {
     pub environment: Environment,
-    pub my_self: Vec<Instance>,
+    pub instance_arena: InstanceArena,
+    pub my_self: Vec<InstanceId>,
     head: usize,
 }
 
 #[derive(Debug, Clone)]
 pub enum InterpretorError {
-    UnexpectedType(LocatedRTObject, String),
-    ForbiddenUnaryOperation(Unary, LocatedRTObject),
-    ForbiddenBinaryOperation(Operator, LocatedRTObject, LocatedRTObject),
+    UnexpectedType(Box<LocatedRTObject>, String),
+    ForbiddenUnaryOperation(Unary, Box<LocatedRTObject>),
+    ForbiddenBinaryOperation(Operator, Box<LocatedRTObject>, Box<LocatedRTObject>),
     FobbiddenTernay,
     ForbidenBreak,
-    NotCallable(LocatedRTObject),
+    NotCallable(Box<LocatedRTObject>),
     UnknownFunction(String),
     InvalidSignature,
     ForbidenContinue,
-    Ungetable(LocatedRTObject),
+    Ungetable(Box<LocatedRTObject>),
     Return(LocatedRTObject),
-    UnDeclaredIdentifier(LocatedRTObject),
+    UnDeclaredIdentifier(Box<LocatedRTObject>),
 }
 impl InterpretorError {
     fn format_error(
@@ -276,23 +305,23 @@ impl Interpreter {
     pub fn declare_function(&mut self, definition: FunctionDefinition) {
         self.environment.functions.insert(
             definition.name,
-            Function::Resident(ResidentFunction {
+            Rc::new(Function::Resident(ResidentFunction {
                 arguments: definition.arguments,
                 statement: definition.statement,
-            }),
+            })),
         );
     }
 
     pub fn declare_constructor(&mut self, class: ClassDefinition) {
         self.environment.functions.insert(
             class.constructor.name.clone(),
-            Function::Constructor(ConstructorFunction { class: class }),
+            Rc::new(Function::Constructor(ConstructorFunction { class: class })),
         );
     }
     pub fn bind_forein(&mut self, name: &str, function: ForeignFunction) {
         self.environment
             .functions
-            .insert(name.to_string(), Function::Foreign(function));
+            .insert(name.to_string(), Rc::new(Function::Foreign(function)));
     }
 
     fn function_call(
@@ -318,7 +347,7 @@ impl Interpreter {
             crate::parser::parser::Expr::Get(expr_id, name) => {
                 let expr = self.eval(ast, *expr_id)?;
                 match expr.inner {
-                    RTObject::Class(instance) => instance.env.functions.get(name).cloned(),
+                    RTObject::Class(id) => self.instance_arena[id].env.functions.get(name).cloned(),
                     _ => unreachable!(),
                 }
             }
@@ -332,6 +361,7 @@ impl Interpreter {
     pub fn new() -> Self {
         let mut ret = Self {
             environment: Environment::new(),
+            instance_arena: InstanceArena::default(),
             head: 0,
             my_self: vec![],
         };
@@ -351,7 +381,10 @@ impl Interpreter {
                     Primary::Boolean(v) => Ok(Primary::Boolean(!v)
                         .located(last.token_start, last.token_end)
                         .to_object()),
-                    _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
+                    _ => Err(InterpretorError::ForbiddenUnaryOperation(
+                        unary,
+                        Box::new(last),
+                    )),
                 }
             }
             crate::parser::parser::Unary::Minus(v) => {
@@ -360,7 +393,10 @@ impl Interpreter {
                     Primary::Number(v) => Ok(Primary::Number(-*v)
                         .located(last.token_start, last.token_end)
                         .to_object()),
-                    _ => Err(InterpretorError::ForbiddenUnaryOperation(unary, last)),
+                    _ => Err(InterpretorError::ForbiddenUnaryOperation(
+                        unary,
+                        Box::new(last),
+                    )),
                 }
             }
         }
@@ -393,8 +429,8 @@ impl Interpreter {
                 Plus => Ok(Primary::String(left_s.to_owned() + right_s)),
                 _ => Err(InterpretorError::ForbiddenBinaryOperation(
                     operator,
-                    left.to_object(),
-                    right.to_object(),
+                    Box::new(left.to_object()),
+                    Box::new(right.to_object()),
                 )),
             },
             (Primary::Boolean(left_bool), Primary::Boolean(right_bool)) => match operator {
@@ -406,8 +442,8 @@ impl Interpreter {
                 GreaterEqual => Ok(Primary::Boolean(left_bool >= right_bool)),
                 _ => Err(InterpretorError::ForbiddenBinaryOperation(
                     operator,
-                    left.to_object(),
-                    right.to_object(),
+                    Box::new(left.to_object()),
+                    Box::new(right.to_object()),
                 )),
             },
             (Primary::Nil, Primary::Nil) => match operator {
@@ -415,8 +451,8 @@ impl Interpreter {
                 NotEqual => Ok(Primary::Boolean(false)),
                 _ => Err(InterpretorError::ForbiddenBinaryOperation(
                     operator,
-                    left.to_object(),
-                    right.to_object(),
+                    Box::new(left.to_object()),
+                    Box::new(right.to_object()),
                 )),
             },
             (Primary::String(s), Primary::Number(n)) => {
@@ -425,8 +461,8 @@ impl Interpreter {
                 } else {
                     Err(InterpretorError::ForbiddenBinaryOperation(
                         operator,
-                        left.to_object(),
-                        right.to_object(),
+                        Box::new(left.to_object()),
+                        Box::new(right.to_object()),
                     ))
                 }
             }
@@ -436,15 +472,15 @@ impl Interpreter {
                 } else {
                     Err(InterpretorError::ForbiddenBinaryOperation(
                         operator,
-                        left.to_object(),
-                        right.to_object(),
+                        Box::new(left.to_object()),
+                        Box::new(right.to_object()),
                     ))
                 }
             }
             _ => Err(InterpretorError::ForbiddenBinaryOperation(
                 operator,
-                left.to_object(),
-                right.to_object(),
+                Box::new(left.to_object()),
+                Box::new(right.to_object()),
             )),
         };
         Ok(ret?.located(token_start, token_end).to_object())
@@ -453,23 +489,23 @@ impl Interpreter {
     pub fn eval_declaration(
         &mut self,
         ast: &AST,
-        input: Declaration,
+        input: &Declaration,
     ) -> Result<RTObject, InterpretorError> {
         match input {
             Declaration::Statement(statement) => self.eval_statement(ast, statement),
             Declaration::VarDecl(ident, expr_id) => {
-                let value = self.eval(ast, expr_id)?;
-                self.environment.add(ident, value.inner.clone());
+                let value = self.eval(ast, *expr_id)?;
+                self.environment.add(ident.clone(), value.inner.clone());
                 Ok(value.inner)
             }
             Declaration::Empty => Ok(RTObject::Primary(Primary::Nil)),
             Declaration::Comment(_) => Ok(RTObject::Primary(Primary::Nil)),
             Declaration::FunctionDefinition(function_definition) => {
-                self.declare_function(function_definition);
+                self.declare_function(function_definition.clone());
                 Ok(RTObject::Primary(Primary::Nil))
             }
             Declaration::ClassDefinition(class) => {
-                self.declare_constructor(class);
+                self.declare_constructor(class.clone());
                 Ok(RTObject::Primary(Primary::Nil))
             }
         }
@@ -477,13 +513,13 @@ impl Interpreter {
     pub fn eval_statement(
         &mut self,
         ast: &AST,
-        input: Statement,
+        input: &Statement,
     ) -> Result<RTObject, InterpretorError> {
         match input {
-            Statement::ExprStatement(expr_id) => Ok(self.eval(ast, expr_id)?.inner),
+            Statement::ExprStatement(expr_id) => Ok(self.eval(ast, *expr_id)?.inner),
             Statement::PrintStatement(items) => {
                 for x in items {
-                    let r = self.eval(ast, x)?;
+                    let r = self.eval(ast, *x)?;
                     match &r.get_primary()? {
                         Primary::Identifier(s) => {
                             let v = self
@@ -520,36 +556,37 @@ impl Interpreter {
                 for (expr, stmt) in ifelses.iter() {
                     let expr = self.eval(ast, *expr)?;
                     match expr.get_primary()? {
-                        Primary::Boolean(true) => return self.eval_statement(ast, stmt.clone()),
+                        Primary::Boolean(true) => return self.eval_statement(ast, stmt),
                         Primary::Boolean(false) => {}
 
                         _ => {
                             return Err(InterpretorError::UnexpectedType(
-                                expr,
+                                Box::new(expr),
                                 "Boolean".to_string(),
                             ));
                         }
                     };
                 }
                 if let Some(stmt) = else_stmt {
-                    let stmt = ast.statement_arena[stmt].clone();
-                    return self.eval_statement(ast, stmt);
+                    return self.eval_statement(ast, &ast.statement_arena[*stmt]);
                 }
 
                 Ok(RTObject::default())
             }
             Statement::Whileloop(expr_id, stmt_id) => {
-                let stmt = ast.statement_arena[stmt_id].clone();
                 loop {
-                    let r = self.eval(ast, expr_id)?;
+                    let r = self.eval(ast, *expr_id)?;
                     match r.get_primary()? {
                         Primary::Boolean(true) => {}
                         Primary::Boolean(false) => break,
                         _ => {
-                            return Err(InterpretorError::UnexpectedType(r, "Boolean".to_string()));
+                            return Err(InterpretorError::UnexpectedType(
+                                Box::new(r),
+                                "Boolean".to_string(),
+                            ));
                         }
                     };
-                    match self.eval_statement(ast, stmt.clone()) {
+                    match self.eval_statement(ast, &ast.statement_arena[*stmt_id]) {
                         Err(InterpretorError::ForbidenBreak) => break,
                         Err(InterpretorError::ForbidenContinue) => continue,
                         _ => {}
@@ -561,7 +598,7 @@ impl Interpreter {
             Statement::Continue(_) => Err(InterpretorError::ForbidenContinue),
             Statement::Return(item) => {
                 let item = if let Some(item) = item {
-                    self.eval(ast, item)?
+                    self.eval(ast, *item)?
                 } else {
                     RTObject::default().located(0, 0)
                 };
@@ -644,18 +681,18 @@ impl Interpreter {
                         return Err(InterpretorError::FobbiddenTernay);
                     } else {
                         return Ok(LocatedRTObject {
-                            inner: RTObject::Class(self.my_self.last().unwrap().clone()),
+                            inner: RTObject::Class(*self.my_self.last().unwrap()),
                             token_start: 0,
                             token_end: 0,
                         });
                     }
                 }
                 Primary::Identifier(_) => unreachable!("Should be evaluated already"),
-                _ => Err(InterpretorError::Ungetable(expr)),
+                _ => Err(InterpretorError::Ungetable(Box::new(expr))),
             },
-            RTObject::Class(instance) => {
+            RTObject::Class(id) => {
                 // TODO: Locate
-                instance
+                self.instance_arena[id]
                     .env
                     .get(name, &expr.inner.located(0, 0))
                     .map(|x| x.located(0, 0))
@@ -669,7 +706,7 @@ pub fn eval(ast: AST, interpreter: &mut Interpreter) -> Result<RTObject, Interpr
     while interpreter.head < ast.roots.len() {
         let root = &ast.roots[interpreter.head];
         interpreter.head += 1;
-        let ret = interpreter.eval_declaration(&ast, root.clone())?;
+        let ret = interpreter.eval_declaration(&ast, root)?;
         last = ret;
     }
     Ok(last)

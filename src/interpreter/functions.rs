@@ -51,7 +51,7 @@ impl ResidentFunction {
         for (name, value) in self.arguments.iter().zip(arguments.iter()) {
             interpreter.environment.add(name.clone(), value.clone());
         }
-        let ret = interpreter.eval_statement(ast, self.statement.clone());
+        let ret = interpreter.eval_statement(ast, &self.statement);
         interpreter.environment.pop();
         ret
     }
@@ -75,17 +75,18 @@ impl ConstructorFunction {
         for f in &self.class.functions {
             env.functions.insert(
                 f.name.clone(),
-                Function::Resident(ResidentFunction {
+                std::rc::Rc::new(Function::Resident(ResidentFunction {
                     arguments: f.arguments.clone(),
                     statement: f.statement.clone(),
-                }),
+                })),
             );
         }
 
-        interpreter.my_self.push(Instance {
+        let id = interpreter.instance_arena.alloc(Instance {
             name: self.class.name.clone(),
             env,
         });
+        interpreter.my_self.push(id);
         if arguments.len() != self.class.constructor.arguments.len() {
             return Err(InterpretorError::InvalidSignature);
         }
@@ -100,9 +101,10 @@ impl ConstructorFunction {
         {
             interpreter.environment.add(name.clone(), value.clone());
         }
-        interpreter.eval_statement(ast, self.class.constructor.statement.clone())?;
+        interpreter.eval_statement(ast, &self.class.constructor.statement)?;
         interpreter.environment.pop();
-        Ok(RTObject::Class(interpreter.my_self.pop().unwrap()))
+        interpreter.my_self.pop();
+        Ok(RTObject::Class(id))
     }
 }
 
