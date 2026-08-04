@@ -19,3 +19,7 @@ path = "src/bin/brod.rs"
 [[bin]]
 name = "formatter"
 path = "src/bin/formatter.rs"
+
+[[bin]]
+name = "test"
+path = "src/bin/tests.rs"

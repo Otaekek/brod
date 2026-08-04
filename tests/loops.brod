@@ -1,0 +1,63 @@
+// Loops and control flow (while, if/elif/else, break, continue)
+// Everything printed should evaluate to true
+
+// Basic while loop
+var b = 2;
+while (b < 64) {
+	b = b * 2;
+}
+print(b == 64);
+
+// While loop with break
+var i = 0;
+while (true) {
+	if (i == 5) break;
+	i = i + 1;
+}
+print(i == 5);
+
+fn modulo(n, m) {
+	while (n >= m) {
+		var d = m;
+		var next = d + d;
+		while (next <= n) {
+			d = next;
+			next = d + d;
+		}
+		n = n - d;
+	}
+	return n;
+}
+
+// While loop with continue
+var sum = 0;
+var n = 0;
+while (n < 10) {
+	n = n + 1;
+	if (modulo(n, 2) == 0) continue;
+	sum = sum + n;
+}
+print(sum == 25); // 1+3+5+7+9
+
+// Nested loops
+var total = 0;
+var row = 0;
+while (row < 3) {
+	var col = 0;
+	while (col < 3) {
+		total = total + 1;
+		col = col + 1;
+	}
+	row = row + 1;
+}
+print(total == 9);
+
+// Recursion as an alternative to `for`
+fn fibonacci(n) {
+	if (n < 2) {
+		n;
+	} else {
+		fibonacci(n - 1) + fibonacci(n - 2);
+	}
+}
+print(fibonacci(10) == 55);

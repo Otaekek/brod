@@ -55,7 +55,6 @@ print(p.describe());
 
 ## TODO
 
-- **Classes**: field assignment (`self.field = x`) and calling methods via `self.method()` aren't supported yet.
 - **Arrays**: no list/array type.
-- **References**: no reference/closure semantics — functions can't capture outer locals, instances are handles into an arena rather than sharable references.
+- **References**: no way to passe variables arround like with references or pointer, all value are copy only
 - **Variable resolver**: locals are still looked up by name in a `HashMap` per scope at runtime; a compile-time resolver pass (slot-indexed scopes) would remove that lookup cost.

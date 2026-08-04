@@ -1,0 +1,39 @@
+// Comparisons, equality and boolean logic
+// Everything printed should evaluate to true
+
+// Numeric comparisons
+print(1 < 2);
+print(2 <= 2);
+print(3 > 2);
+print(2 >= 2);
+print(1 == 1);
+print(1 != 2);
+print(!(1 == 2));
+
+// String comparisons
+print("abc" == "abc");
+print("abc" != "abd");
+
+// Boolean literals
+print(true == true);
+print(false == false);
+print(true != false);
+print(!true == false);
+print(!false == true);
+
+// nil
+print(nil == nil);
+
+// Logical and / or (single & and | operators)
+print((true & true) == true);
+print((true & false) == false);
+print((false | true) == true);
+print((false | false) == false);
+
+// Short-circuit-style combos used in conditions
+var x = 5;
+print((x > 0) & (x < 10));
+print((x < 0) | (x == 5));
+
+// Ternary-like behaviour via if/else expressions is not available (no `?:`),
+// so branching relies on if/else, exercised in control_flow.brod

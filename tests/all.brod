@@ -1,0 +1,196 @@
+// Combined test battery: exercises every currently available language feature
+// in a single script. Everything printed should evaluate to true.
+
+// ---- math ----
+print(1 + 1 == 2);
+print(2 + 3 * 4 == 14);
+print((2 + 3) * 4 == 20);
+print(-(3 + 2) == -5);
+print(abs(-4) == 4);
+print(sin(0) == 0);
+print(cos(0) == 1);
+
+// ---- comparisons & boolean logic ----
+print(1 < 2);
+print(2 >= 2);
+print(1 != 2);
+print(!(1 == 2));
+print("abc" == "abc");
+print(nil == nil);
+print((true & true) == true);
+print((false | true) == true);
+
+// ---- assignment & scoping ----
+var a = "global a";
+{
+	var a = "outer a";
+	{
+		var a = "inner a";
+		print(a == "inner a");
+	}
+	print(a == "outer a");
+}
+print(a == "global a");
+
+var counter = 0;
+counter = counter + 1;
+counter = counter + 1;
+print(counter == 2);
+
+// ---- functions & recursion ----
+fn modulo(n, m) {
+	while (n >= m) {
+		var d = m;
+		var next = d + d;
+		while (next <= n) {
+			d = next;
+			next = d + d;
+		}
+		n = n - d;
+	}
+	return n;
+}
+print(modulo(10, 3) == 1);
+
+fn factorial(n) {
+	if (n <= 1) {
+		return 1;
+	}
+	return n * factorial(n - 1);
+}
+print(factorial(5) == 120);
+
+fn fizzbuzz(n) {
+	if (modulo(n, 15) == 0) return "FizzBuzz";
+	if (modulo(n, 3) == 0) return "Fizz";
+	if (modulo(n, 5) == 0) return "Buzz";
+	return "" + n;
+}
+print(fizzbuzz(15) == "FizzBuzz");
+print(fizzbuzz(7) == "7");
+
+fn is_prime(n) {
+	if (n < 2) return false;
+	if (n < 4) return true;
+	if (modulo(n, 2) == 0) return false;
+	var i = 3;
+	while (i * i <= n) {
+		if (modulo(n, i) == 0) return false;
+		i = i + 2;
+	}
+	return true;
+}
+print(is_prime(2) == true);
+print(is_prime(17) == true);
+print(is_prime(1) == false);
+print(is_prime(100) == false);
+print(is_prime(97) == true);
+
+// ---- loops (while, break, continue) ----
+var b = 2;
+while (b < 64) {
+	b = b * 2;
+}
+print(b == 64);
+
+var i = 0;
+while (true) {
+	if (i == 5) break;
+	i = i + 1;
+}
+print(i == 5);
+
+var sum = 0;
+var n = 0;
+while (n < 10) {
+	n = n + 1;
+	if (modulo(n, 2) == 0) continue;
+	sum = sum + n;
+}
+print(sum == 25);
+
+// ---- if / elif / else ----
+fn classify(x) {
+	if (x < 0) {
+		return "negative";
+	} elif (x == 0) {
+		return "zero";
+	} else {
+		return "positive";
+	}
+}
+print(classify(-3) == "negative");
+print(classify(0) == "zero");
+print(classify(3) == "positive");
+
+// ---- classes: fields, constructors, methods, self, chaining ----
+class Box {
+	fn Box() {}
+	fn set(v) {
+		self.value = v;
+		return v;
+	}
+	fn get() {
+		return self.value;
+	}
+	var value;
+}
+
+var box = Box();
+box.set(42);
+print(box.get() == 42);
+
+var direct = Box();
+direct.value = 99;
+print(direct.value == 99);
+
+class Point {
+	fn Point(x, y) {
+		self.x = x;
+		self.y = y;
+	}
+	fn sum() {
+		return self.x + self.y;
+	}
+	var x;
+	var y;
+}
+var p = Point(3, 4);
+print(p.sum() == 7);
+
+class Counter {
+	fn Counter() {
+		self.count = 0;
+	}
+	fn increment() {
+		self.count = self.count + 1;
+		return self;
+	}
+	fn value() {
+		return self.count;
+	}
+	var count;
+}
+print(Counter().increment().increment().value() == 2);
+
+class Factory {
+	fn Factory() {}
+	fn make(v) {
+		var b = Box();
+		b.set(v);
+		return b;
+	}
+}
+var factory = Factory();
+print(factory.make(7).get() == 7);
+print(factory.make(9).value == 9);
+
+// ---- recursion producing multiple independent instances ----
+fn fibonacci(x) {
+	if (x < 2) {
+		x;
+	} else {
+		fibonacci(x - 1) + fibonacci(x - 2);
+	}
+}
+print(fibonacci(10) == 55);

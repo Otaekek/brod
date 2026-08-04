@@ -1,0 +1,62 @@
+// Variable declaration, assignment, scoping and field assignment
+// Everything printed should evaluate to true
+
+// Declaration + reassignment
+var x = 1;
+print(x == 1);
+x = 2;
+print(x == 2);
+x = x + 1;
+print(x == 3);
+
+// Reassignment based on current value
+var counter = 0;
+counter = counter + 1;
+counter = counter + 1;
+print(counter == 2);
+
+// Block scoping: inner blocks can shadow outer variables
+var a = "global a";
+{
+	var a = "outer a";
+	{
+		var a = "inner a";
+		print(a == "inner a");
+	}
+	print(a == "outer a");
+}
+print(a == "global a");
+
+// Assignment is an expression: it evaluates to the assigned value
+var y = 5;
+var z = (y = 10);
+print(y == 10);
+print(z == 10);
+
+// Field assignment on class instances
+class Box {
+	fn Box() {}
+	var value;
+}
+
+var b = Box();
+b.value = 1;
+print(b.value == 1);
+b.value = b.value + 1;
+print(b.value == 2);
+
+// Assignment inside a method (via self)
+class Accumulator {
+	fn Accumulator() {
+		self.total = 0;
+	}
+	fn add(v) {
+		self.total = self.total + v;
+	}
+	var total;
+}
+
+var acc = Accumulator();
+acc.add(3);
+acc.add(4);
+print(acc.total == 7);

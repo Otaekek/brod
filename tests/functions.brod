@@ -1,0 +1,64 @@
+// Functions: declaration, arguments, return values, recursion, closured foreign calls
+// Everything printed should evaluate to true
+
+// Basic function with implicit return (last expression value)
+fn square(x) {
+	x * x;
+}
+print(square(4) == 16);
+
+// Explicit return
+fn add(a, b) {
+	return a + b;
+}
+print(add(2, 3) == 5);
+
+// Early return
+fn abs_value(x) {
+	if (x < 0) {
+		return -x;
+	}
+	return x;
+}
+print(abs_value(-7) == 7);
+print(abs_value(7) == 7);
+
+// Recursion
+fn factorial(n) {
+	if (n <= 1) {
+		return 1;
+	}
+	return n * factorial(n - 1);
+}
+print(factorial(5) == 120);
+
+// Mutual style recursion via a shared helper
+fn is_even(n) {
+	if (n == 0) return true;
+	return is_odd(n - 1);
+}
+fn is_odd(n) {
+	if (n == 0) return false;
+	return is_even(n - 1);
+}
+print(is_even(10) == true);
+print(is_odd(10) == false);
+
+// Multiple arguments and local variables
+fn weighted_sum(a, b, c) {
+	var total = a * 1 + b * 2 + c * 3;
+	return total;
+}
+print(weighted_sum(1, 1, 1) == 6);
+
+// Functions calling other functions
+fn double(x) {
+	return x * 2;
+}
+fn quadruple(x) {
+	return double(double(x));
+}
+print(quadruple(3) == 12);
+
+// Function used as a building block in an expression
+print(double(3) + double(4) == 14);

@@ -1,0 +1,88 @@
+// Classes: fields, constructors, methods, self, chaining
+// Everything printed should evaluate to true
+
+class Box {
+	fn Box() {}
+	fn set(v) {
+		self.value = v;
+		return v;
+	}
+	fn get() {
+		return self.value;
+	}
+	var value;
+}
+
+// Basic construction + method call
+var box = Box();
+box.set(42);
+print(box.get() == 42);
+
+// Direct field assignment / access
+var direct = Box();
+direct.value = 99;
+print(direct.value == 99);
+
+// Constructor arguments
+class Point {
+	fn Point(x, y) {
+		self.x = x;
+		self.y = y;
+	}
+	fn sum() {
+		return self.x + self.y;
+	}
+	var x;
+	var y;
+}
+
+var p = Point(3, 4);
+print(p.x == 3);
+print(p.y == 4);
+print(p.sum() == 7);
+
+// Methods calling other methods on self (chained self)
+class Counter {
+	fn Counter() {
+		self.count = 0;
+	}
+	fn increment() {
+		self.count = self.count + 1;
+		return self;
+	}
+	fn value() {
+		return self.count;
+	}
+	var count;
+}
+
+var counter = Counter();
+counter.increment();
+counter.increment();
+counter.increment();
+print(counter.value() == 3);
+
+// Chained call: increment() returns self, so we can call value() directly on the result
+print(Counter().increment().increment().value() == 2);
+
+// A class producing other class instances (factory pattern)
+class Factory {
+	fn Factory() {}
+	fn make(v) {
+		var b = Box();
+		b.set(v);
+		return b;
+	}
+}
+
+var factory = Factory();
+print(factory.make(7).get() == 7);
+print(factory.make(9).value == 9);
+
+// Multiple independent instances don't share state
+var a1 = Box();
+var a2 = Box();
+a1.set(1);
+a2.set(2);
+print(a1.get() == 1);
+print(a2.get() == 2);
