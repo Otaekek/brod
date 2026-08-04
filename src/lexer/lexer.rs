@@ -118,49 +118,49 @@ static KEY_WORD_STR: Lazy<HashMap<&'static str, KeyWordType>> = Lazy::new(|| {
 });
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Token {
+pub enum TokenKind {
     Single(SimpleToken),
     StringLitteral(String),
     Identifier(String),
     Number(f64),
     Comment(String),
 }
-impl Display for Token {
+impl Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Single(simple_token) => write!(f, "{}", simple_token),
-            Token::StringLitteral(str) => write!(f, "\"{}\"", str),
-            Token::Identifier(c) => write!(f, "{}", c),
-            Token::Number(n) => write!(f, "{}", n),
-            Token::Comment(s) => write!(f, "//{}", s),
+            TokenKind::Single(simple_token) => write!(f, "{}", simple_token),
+            TokenKind::StringLitteral(str) => write!(f, "\"{}\"", str),
+            TokenKind::Identifier(c) => write!(f, "{}", c),
+            TokenKind::Number(n) => write!(f, "{}", n),
+            TokenKind::Comment(s) => write!(f, "//{}", s),
         }
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct LocatedToken {
-    pub token: Token,
+pub struct Token {
+    pub kind: TokenKind,
     pub span: Span,
 }
 
-impl Display for LocatedToken {
+impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.token)
+        write!(f, "{}", self.kind)
     }
 }
-impl LocatedToken {
-    pub fn new(token: Token, span: Span) -> Self {
-        Self { token, span }
+impl Token {
+    pub fn new(kind: TokenKind, span: Span) -> Self {
+        Self { kind, span }
     }
 }
 
 #[derive(Clone, PartialEq, Default, Debug)]
 pub struct TokenVec {
-    pub tokens: Vec<LocatedToken>,
+    pub tokens: Vec<Token>,
 }
 
 impl TokenVec {
-    pub fn push(&mut self, token: LocatedToken) {
+    pub fn push(&mut self, token: Token) {
         self.tokens.push(token);
     }
 }
@@ -412,14 +412,14 @@ impl Lexer {
         Span::new(self.start, self.current)
     }
 
-    fn add_token(&mut self, token: Token, span: Span) {
-        self.tokens.push(LocatedToken::new(token, span));
+    fn add_token(&mut self, kind: TokenKind, span: Span) {
+        self.tokens.push(Token::new(kind, span));
     }
 
     fn push_string(&mut self) {
         let span = self.span_inclusive();
         self.add_token(
-            Token::StringLitteral(self.source[self.start + 1..self.current].to_string()),
+            TokenKind::StringLitteral(self.source[self.start + 1..self.current].to_string()),
             span,
         );
     }
@@ -431,7 +431,7 @@ impl Lexer {
         let s = &self.source[self.start..self.current];
         let number: f64 = s.parse().unwrap();
         let span = self.span_exclusive();
-        self.add_token(Token::Number(number), span);
+        self.add_token(TokenKind::Number(number), span);
         self.go_back();
     }
 
@@ -439,9 +439,9 @@ impl Lexer {
         let s = self.source[self.start..self.current].to_string();
         let span = self.span_exclusive();
         if let Some(kw) = KEY_WORD_STR.get(s.as_str()) {
-            self.add_token(Token::Single(SimpleToken::KeyWord(*kw)), span);
+            self.add_token(TokenKind::Single(SimpleToken::KeyWord(*kw)), span);
         } else {
-            self.add_token(Token::Identifier(s), span);
+            self.add_token(TokenKind::Identifier(s), span);
         }
         self.go_back();
     }
@@ -450,7 +450,7 @@ impl Lexer {
         // start points at the second '/', so +1 skips it to get the comment body
         let text = self.source[self.start + 1..self.current].to_string();
         let span = self.span_exclusive();
-        self.add_token(Token::Comment(text), span);
+        self.add_token(TokenKind::Comment(text), span);
     }
 
     pub fn lex(&mut self) -> Result<(), LexError> {
@@ -465,7 +465,7 @@ impl Lexer {
                 Action::None => (),
                 Action::Push(simple_token) => {
                     let span = self.span_inclusive();
-                    self.add_token(Token::Single(simple_token), span);
+                    self.add_token(TokenKind::Single(simple_token), span);
                 }
                 Action::PushString => self.push_string(),
                 Action::PushNumber => self.push_number(),
@@ -484,7 +484,7 @@ impl Lexer {
                 // }
                 Action::PushAndGoBack(simple_token) => {
                     let span = self.span_exclusive();
-                    self.add_token(Token::Single(simple_token), span);
+                    self.add_token(TokenKind::Single(simple_token), span);
                     self.go_back();
                 }
             }
@@ -496,7 +496,7 @@ impl Lexer {
             let end = self.source.len() - 1; // exclude the trailing space added above
             let text = self.source[self.start + 1..end].to_string();
             let span = Span::new(self.start, end);
-            self.add_token(Token::Comment(text), span);
+            self.add_token(TokenKind::Comment(text), span);
         }
         Ok(())
     }

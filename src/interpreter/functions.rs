@@ -2,7 +2,7 @@ use crate::{
     diagnostic::Span,
     interpreter::{
         environment::Environment,
-        interpreter::{Instance, Interpreter, InterpretorError, LocatedRTObject, RTObject},
+        interpreter::{Instance, InstanceId, Interpreter, InterpretorError, LocatedRTObject, RTObject},
     },
     parser::parser::{AST, ClassDefinition, Primary, Statement},
 };
@@ -45,6 +45,7 @@ impl ResidentFunction {
         interpreter: &mut Interpreter,
         arguments: &[RTObject],
         call_span: Span,
+        self_id: Option<InstanceId>,
     ) -> Result<RTObject, InterpretorError> {
         if arguments.len() != self.arguments.len() {
             return Err(InterpretorError::InvalidSignature {
@@ -56,6 +57,11 @@ impl ResidentFunction {
         }
 
         interpreter.environment.push();
+        if let Some(id) = self_id {
+            interpreter
+                .environment
+                .add("self".to_string(), RTObject::Class(id));
+        }
 
         for (name, value) in self.arguments.iter().zip(arguments.iter()) {
             interpreter.environment.add(name.clone(), value.clone());
@@ -106,6 +112,9 @@ impl ConstructorFunction {
             });
         }
         interpreter.environment.push();
+        interpreter
+            .environment
+            .add("self".to_string(), RTObject::Class(id));
 
         for (name, value) in self
             .class
@@ -118,7 +127,6 @@ impl ConstructorFunction {
         }
         interpreter.eval_statement(ast, &self.class.constructor.statement)?;
         interpreter.environment.pop();
-        interpreter.my_self.pop();
         Ok(RTObject::Class(id))
     }
 }
@@ -137,6 +145,7 @@ impl Function {
         interpreter: &mut Interpreter,
         arguments: &[RTObject],
         call_span: Span,
+        self_id: Option<InstanceId>,
     ) -> Result<LocatedRTObject, InterpretorError> {
         let ret = {
             match self {
@@ -144,7 +153,7 @@ impl Function {
                     .call(arguments, &mut interpreter.environment)
                     .map(|x| x.located(call_span)),
                 Function::Resident(resident_function) => resident_function
-                    .call(ast, interpreter, arguments, call_span)
+                    .call(ast, interpreter, arguments, call_span, self_id)
                     .map(|x| x.located(call_span)),
                 Function::Constructor(constructor_function) => constructor_function
                     .call(ast, interpreter, arguments, call_span)

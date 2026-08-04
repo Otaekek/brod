@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::arena::{Arena, Id};
 use crate::diagnostic::{Diagnostic, Span, Stage};
-use crate::lexer::lexer::{KeyWordType, LocatedToken, SimpleToken, Token, TokenVec};
+use crate::lexer::lexer::{KeyWordType, SimpleToken, Token, TokenKind, TokenVec};
 
 #[derive(Copy, Clone, Debug, PartialEq, enum_display::EnumDisplay)]
 pub enum Operator {
@@ -131,8 +131,8 @@ pub enum Statement {
     Block(Vec<Declaration>),
     IfStatement(Vec<(ExprID, Statement)>, Option<StatementID>),
     Whileloop(ExprID, StatementID),
-    Break(LocatedToken),
-    Continue(LocatedToken),
+    Break(Token),
+    Continue(Token),
     Return(Option<ExprID>),
 }
 
@@ -160,10 +160,10 @@ pub enum ASTError {
     Eof,
     NoConstructor(String),
     TooManyArguments,
-    TokenError(LocatedToken, Vec<SimpleToken>),
-    ExpectedExpression(LocatedToken),
-    ExpectedIdentifier(LocatedToken),
-    BinaryNoLeft(LocatedToken),
+    TokenError(Token, Vec<SimpleToken>),
+    ExpectedExpression(Token),
+    ExpectedIdentifier(Token),
+    BinaryNoLeft(Token),
     RValueAssignment(ExprID),
 }
 
@@ -189,20 +189,20 @@ impl Diagnostic for ASTError {
             ASTError::TokenError(located_token, expected) => {
                 format!(
                     "Unexpected token \"{}\", expected {:?}",
-                    located_token.token, expected
+                    located_token.kind, expected
                 )
             }
             ASTError::ExpectedExpression(located_token) => format!(
                 "Unexpected token \"{}\", expected an expression (a number, string, identifier, `(...)`, `self`, `true`, `false`, or `nil`)",
-                located_token.token
+                located_token.kind
             ),
             ASTError::ExpectedIdentifier(located_token) => format!(
                 "Unexpected token \"{}\", expected an identifier",
-                located_token.token
+                located_token.kind
             ),
             ASTError::BinaryNoLeft(located_token) => format!(
                 "Unexpected token \"{}\", this token should have a left and right side",
-                located_token.token
+                located_token.kind
             ),
             ASTError::RValueAssignment(_) => {
                 "Unexpected token, assignment should have a lvalue".to_string()
@@ -254,19 +254,19 @@ impl<'a> ASTBuilder<'a> {
         }))
     }
 
-    fn current(&self, offset: i64) -> LocatedToken {
+    fn current(&self, offset: i64) -> Token {
         self.tokens.tokens[(self.current_index as i64 + offset) as usize].clone()
     }
     fn is_last(&self) -> bool {
         self.current_index == self.tokens.tokens.len()
     }
-    fn _peek_next(&self) -> Option<Token> {
+    fn _peek_next(&self) -> Option<TokenKind> {
         if self.is_last() {
             None
         } else {
             Some(
                 self.tokens.tokens[(self.current_index as i64 + 1) as usize]
-                    .token
+                    .kind
                     .clone(),
             )
         }
@@ -280,22 +280,22 @@ impl<'a> ASTBuilder<'a> {
         if self.is_last() {
             return Ok(Declaration::Empty);
         } else if matches!(
-            &self.tokens.tokens[self.current_index].token,
-            Token::Comment(_)
+            &self.tokens.tokens[self.current_index].kind,
+            TokenKind::Comment(_)
         ) {
             let text = match self.advance()? {
-                Token::Comment(s) => s.clone(),
+                TokenKind::Comment(s) => s.clone(),
                 _ => unreachable!(),
             };
             return Ok(Declaration::Comment(text));
-        } else if self.current(0).token == Token::Single(SimpleToken::KeyWord(KeyWordType::Var)) {
+        } else if self.current(0).kind == TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Var)) {
             let d = self.vardecl()?;
             self.consume(SimpleToken::SemiColon)?;
             Ok(d)
-        } else if self.current(0).token == Token::Single(SimpleToken::KeyWord(KeyWordType::Fun)) {
+        } else if self.current(0).kind == TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Fun)) {
             let d = self.function_def()?;
             Ok(d)
-        } else if self.check(&Token::Single(SimpleToken::KeyWord(KeyWordType::Class))) {
+        } else if self.check(&TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Class))) {
             self.class_definition()
         } else {
             let s = self.statement()?;
@@ -315,7 +315,7 @@ impl<'a> ASTBuilder<'a> {
             if self.my_match(&[SimpleToken::RightBrace]).is_some() {
                 break;
             }
-            if self.check(&Token::Single(SimpleToken::KeyWord(KeyWordType::Fun))) {
+            if self.check(&TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Fun))) {
                 let function_def = self.function_def()?;
                 let function_def = match function_def {
                     Declaration::FunctionDefinition(function_definition) => function_definition,
@@ -326,7 +326,7 @@ impl<'a> ASTBuilder<'a> {
                 } else {
                     functions.push(function_def);
                 }
-            } else if self.check(&Token::Single(SimpleToken::KeyWord(KeyWordType::Var))) {
+            } else if self.check(&TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Var))) {
                 self.advance()?;
                 fields.push(self.get_identifier_string()?);
                 self.consume(SimpleToken::SemiColon)?;
@@ -359,7 +359,7 @@ impl<'a> ASTBuilder<'a> {
         while !self.my_match(&[SimpleToken::RightParen]).is_some() {
             let argument_name = self.get_identifier_string()?;
             arguments.push(argument_name);
-            if self.peek() != &Token::Single(SimpleToken::RightParen) {
+            if self.peek() != &TokenKind::Single(SimpleToken::RightParen) {
                 self.consume(SimpleToken::Comma)?;
             }
         }
@@ -398,11 +398,11 @@ impl<'a> ASTBuilder<'a> {
         }
     }
     fn statement(&mut self) -> Result<Statement, ASTError> {
-        let s = if self.check(&Token::Single(SimpleToken::KeyWord(KeyWordType::Print))) {
+        let s = if self.check(&TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Print))) {
             let r = self.print()?;
             self.consume(SimpleToken::SemiColon)?;
             Ok(r)
-        } else if self.check(&Token::Single(SimpleToken::LeftBrace)) {
+        } else if self.check(&TokenKind::Single(SimpleToken::LeftBrace)) {
             self.block()
         } else if self
             .my_match(&[SimpleToken::KeyWord(KeyWordType::If)])
@@ -432,7 +432,7 @@ impl<'a> ASTBuilder<'a> {
             .my_match(&[SimpleToken::KeyWord(KeyWordType::Return)])
             .is_some()
         {
-            let expr = if self.peek() == &Token::Single(SimpleToken::SemiColon) {
+            let expr = if self.peek() == &TokenKind::Single(SimpleToken::SemiColon) {
                 None
             } else {
                 Some(self.expression()?)
@@ -492,7 +492,7 @@ impl<'a> ASTBuilder<'a> {
         self.consume(SimpleToken::Equal)?;
         let right = self.expression()?;
         match ident {
-            Token::Identifier(s) => return Ok(Declaration::VarDecl(s, right)),
+            TokenKind::Identifier(s) => return Ok(Declaration::VarDecl(s, right)),
             _ => Err(ASTError::ExpectedIdentifier(self.current(-3))),
         }
     }
@@ -737,10 +737,10 @@ impl<'a> ASTBuilder<'a> {
             return Ok(expression);
         }
         match self.advance()?.clone() {
-            Token::Single(SimpleToken::KeyWord(KeyWordType::MySelf)) => {
+            TokenKind::Single(SimpleToken::KeyWord(KeyWordType::MySelf)) => {
                 Ok(self.emit_primary(Primary::MySelf, 0))
             }
-            Token::Single(token) => match token {
+            TokenKind::Single(token) => match token {
                 SimpleToken::KeyWord(key_word_type) => match key_word_type {
                     KeyWordType::False => Ok(self.emit_primary(Primary::Boolean(false), 0)),
                     KeyWordType::True => Ok(self.emit_primary(Primary::Boolean(true), 0)),
@@ -749,18 +749,18 @@ impl<'a> ASTBuilder<'a> {
                 },
                 _ => Err(ASTError::ExpectedExpression(self.current(-1))),
             },
-            Token::Identifier(s) => Ok(self.emit_primary(Primary::Identifier(s), 0)),
-            Token::StringLitteral(s) => Ok(self.emit_primary(Primary::String(s), 0)),
-            Token::Number(n) => Ok(self.emit_primary(Primary::Number(n), 0)),
-            Token::Comment(_) => Err(ASTError::ExpectedExpression(self.current(-1))),
+            TokenKind::Identifier(s) => Ok(self.emit_primary(Primary::Identifier(s), 0)),
+            TokenKind::StringLitteral(s) => Ok(self.emit_primary(Primary::String(s), 0)),
+            TokenKind::Number(n) => Ok(self.emit_primary(Primary::Number(n), 0)),
+            TokenKind::Comment(_) => Err(ASTError::ExpectedExpression(self.current(-1))),
         }
     }
 
-    fn peek(&self) -> &Token {
-        &self.tokens.tokens[self.current_index].token
+    fn peek(&self) -> &TokenKind {
+        &self.tokens.tokens[self.current_index].kind
     }
 
-    fn advance(&mut self) -> Result<&Token, ASTError> {
+    fn advance(&mut self) -> Result<&TokenKind, ASTError> {
         if self.current_index == self.tokens.tokens.len() {
             return Err(ASTError::Eof);
         }
@@ -768,19 +768,19 @@ impl<'a> ASTBuilder<'a> {
         Ok(self.previous())
     }
 
-    fn previous(&mut self) -> &Token {
-        &self.tokens.tokens[self.current_index - 1].token
+    fn previous(&mut self) -> &TokenKind {
+        &self.tokens.tokens[self.current_index - 1].kind
     }
 
-    fn check(&self, token: &Token) -> bool {
+    fn check(&self, token: &TokenKind) -> bool {
         if self.current_index == self.tokens.tokens.len() {
             return false;
         }
 
         self.peek() == token
     }
-    fn consume(&mut self, token: SimpleToken) -> Result<&Token, ASTError> {
-        if self.check(&Token::Single(token)) {
+    fn consume(&mut self, token: SimpleToken) -> Result<&TokenKind, ASTError> {
+        if self.check(&TokenKind::Single(token)) {
             self.advance()
         } else {
             if self.current_index == self.tokens.tokens.len() {
@@ -793,10 +793,10 @@ impl<'a> ASTBuilder<'a> {
     fn my_match(&mut self, tokens: &[SimpleToken]) -> Option<SimpleToken> {
         assert!(!tokens.is_empty());
         for token in tokens {
-            if self.check(&Token::Single(*token)) {
+            if self.check(&TokenKind::Single(*token)) {
                 let token = self.advance().unwrap();
                 return match token {
-                    Token::Single(simple_token) => Some(*simple_token),
+                    TokenKind::Single(simple_token) => Some(*simple_token),
                     _ => None,
                 };
             }
@@ -820,7 +820,7 @@ impl<'a> ASTBuilder<'a> {
                     errors.push(ASTError::Eof);
                     return ((), errors);
                 }
-                if token.unwrap() == &Token::Single(SimpleToken::SemiColon) {
+                if token.unwrap() == &TokenKind::Single(SimpleToken::SemiColon) {
                     recovery_mode = false;
                 }
             } else {

@@ -1,5 +1,3 @@
-use reedline::TextObject;
-
 use crate::arena::{Arena, Id};
 use crate::diagnostic::{Diagnostic, Span, Stage};
 use crate::interpreter::environment::Environment;
@@ -101,7 +99,6 @@ impl RTObject {
 pub struct Interpreter {
     pub environment: Environment,
     pub instance_arena: InstanceArena,
-    pub my_self: Vec<InstanceId>,
     head: usize,
 }
 
@@ -260,7 +257,7 @@ impl Interpreter {
                     args_end.unwrap_or(located_primary.span.end),
                 );
                 match self.environment.functions.get(callee).cloned() {
-                    Some(function) => function.call(ast, self, &arguments, call_span),
+                    Some(function) => function.call(ast, self, &arguments, call_span, None),
                     None => Err(InterpretorError::UnknownFunction(
                         callee.clone(),
                         Some(located_primary.span),
@@ -275,26 +272,12 @@ impl Interpreter {
                             Span::new(expr.span.start, args_end.unwrap_or(expr.span.end));
                         match self.instance_arena[id].env.functions.get(name).cloned() {
                             Some(function) => {
-                                self.my_self.push(id);
-                                let ret = function.call(ast, self, &arguments, call_span);
-                                self.my_self.pop();
-                                ret
+                                function.call(ast, self, &arguments, call_span, Some(id))
                             }
                             None => Err(InterpretorError::UnknownFunction(name.clone(), None)),
                         }
                     }
-                    RTObject::Primary(Primary::MySelf) => {
-                        if !self.my_self.is_empty() {
-                            return Ok(RTObject::Class(*self.my_self.last().unwrap())
-                                .located(Span::point(0)));
-                        } else {
-                            return Err(InterpretorError::SelfOutsideConstructor(None));
-                        }
-                    }
-                    c => {
-                        println!("{:#?}", c);
-                        unreachable!();
-                    }
+                    _ => Err(InterpretorError::Ungetable(Box::new(expr))),
                 }
             }
             _ => {
@@ -308,7 +291,6 @@ impl Interpreter {
             environment: Environment::new(),
             instance_arena: InstanceArena::default(),
             head: 0,
-            my_self: vec![],
         };
         init_foreign_functions(&mut ret);
         ret
@@ -557,6 +539,15 @@ impl Interpreter {
                     .environment
                     .get(v, &terminal.clone().to_object())?
                     .locate_with(terminal)),
+                Primary::MySelf => {
+                    match self.environment.get("self", &terminal.clone().to_object()) {
+                        Ok(value) => Ok(value.locate_with(terminal)),
+                        Err(InterpretorError::UnDeclaredIdentifier(_)) => Err(
+                            InterpretorError::SelfOutsideConstructor(Some(terminal.span)),
+                        ),
+                        Err(e) => Err(e),
+                    }
+                }
                 _ => return Ok(terminal.clone().to_object()),
             },
             crate::parser::parser::Expr::Unary(unary) => self.eval_unary(ast, *unary),
@@ -653,24 +644,11 @@ impl Interpreter {
     ) -> Result<LocatedRTObject, InterpretorError> {
         let expr = self.eval(ast, expr_id)?;
         match expr.inner.clone() {
-            RTObject::Primary(primary) => match primary {
-                Primary::MySelf => {
-                    if self.my_self.is_empty() {
-                        return Err(InterpretorError::SelfOutsideConstructor(Some(expr.span)));
-                    } else {
-                        let object = &self.instance_arena[*self.my_self.last().unwrap()];
-                        let ident = &RTObject::Primary(Primary::String(name.to_string()))
-                            .located(Span::point(0));
-                        return Ok(object.env.get(name, ident)?.located(Span::point(0)));
-                    }
-                }
-                Primary::Identifier(_) => unreachable!("Should be evaluated already"),
-                _ => Err(InterpretorError::Ungetable(Box::new(expr))),
-            },
             RTObject::Class(id) => self.instance_arena[id]
                 .env
                 .get(name, &expr.inner.clone().located(expr.span))
                 .map(|x| x.located(expr.span)),
+            RTObject::Primary(_) => Err(InterpretorError::Ungetable(Box::new(expr))),
         }
     }
 
@@ -683,18 +661,8 @@ impl Interpreter {
     ) -> Result<RTObject, InterpretorError> {
         let expr = self.eval(ast, expr_id)?;
         match expr.inner.clone() {
-            RTObject::Primary(primary) => match primary {
-                Primary::MySelf => {
-                    if self.my_self.is_empty() {
-                        return Err(InterpretorError::SelfOutsideConstructor(Some(expr.span)));
-                    } else {
-                        return Ok(RTObject::Class(*self.my_self.last().unwrap()));
-                    }
-                }
-                Primary::Identifier(_) => unreachable!("Should be evaluated already"),
-                _ => Err(InterpretorError::Ungetable(Box::new(expr))),
-            },
             RTObject::Class(_) => Ok(expr.inner),
+            RTObject::Primary(_) => Err(InterpretorError::Ungetable(Box::new(expr))),
         }
     }
 }
