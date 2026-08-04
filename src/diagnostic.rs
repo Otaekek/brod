@@ -10,11 +10,20 @@ impl Span {
     pub fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
+
     pub fn point(at: usize) -> Self {
         Self {
             start: at,
             end: at + 1,
         }
+    }
+
+    pub fn union(self, other: Span) -> Span {
+        Span::new(self.start.min(other.start), self.end.max(other.end))
+    }
+
+    pub fn extended_to(self, end: Option<usize>) -> Span {
+        Span::new(self.start, end.unwrap_or(self.end))
     }
 }
 

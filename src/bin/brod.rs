@@ -24,7 +24,6 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
         eprintln!("{}", render(&err, source, &source_name));
     } else if let Ok(tokens) = tokens {
         let res = ASTBuilder::parse(tokens, ast);
-        // println!("{:#?}", ast);
         for err in &res.1 {
             eprintln!("{}", render(err, source, &source_name));
         }
@@ -38,7 +37,6 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
             }
         }
     }
-    // println!("{:#?}", ast.0);
     false
 }
 

@@ -131,7 +131,7 @@ fn display_statement(ast: &AST, statement: Statement, indent: usize) {
         }
         Statement::Break(_) => println!("break;"),
         Statement::Continue(_) => println!("continue;"),
-        Statement::Return(expr_id) => {
+        Statement::Return(_, expr_id) => {
             print!("return");
             if let Some(expr_id) = expr_id {
                 display_expression(ast, &ast.expr_arena[expr_id], indent);

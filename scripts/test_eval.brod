@@ -105,3 +105,36 @@ print(is_prime(17) == true);
 print(is_prime(1) == false);
 print(is_prime(100) == false);
 print(is_prime(97) == true);
+
+class Box {
+	fn Box() {}
+	fn set(v) {
+		self.value = v;
+		return v;
+	}
+	fn get() {
+		return self.value;
+	}
+	var value;
+}
+
+var box = Box();
+box.set(42);
+print(box.get() == 42);
+
+class Factory {
+	fn Factory() {}
+	fn make(v) {
+		var b = Box();
+		b.set(v);
+		return b;
+	}
+}
+
+var factory = Factory();
+print(factory.make(7).get() == 7);
+print(factory.make(9).value == 9);
+
+var direct = Box();
+direct.value = 99;
+print(direct.value == 99);

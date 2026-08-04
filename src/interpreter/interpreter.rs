@@ -67,13 +67,22 @@ impl LocatedRTObject {
     pub fn get_primary(&self) -> Result<&Primary, InterpretorError> {
         match &self.inner {
             RTObject::Primary(primary) => Ok(&primary),
-            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay(Some(self.span))),
+            RTObject::Class(_) => Err(InterpretorError::UnexpectedType(
+                self.inner.clone(),
+                "a primitive value".to_string(),
+                Some(self.span),
+            )),
         }
     }
     pub fn get_located_primary(self) -> Result<LocatedPrimary, InterpretorError> {
+        let span = self.span;
         match self.inner {
-            RTObject::Primary(primary) => Ok(primary.located(self.span)),
-            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay(Some(self.span))),
+            RTObject::Primary(primary) => Ok(primary.located(span)),
+            class @ RTObject::Class(_) => Err(InterpretorError::UnexpectedType(
+                class,
+                "a primitive value".to_string(),
+                Some(span),
+            )),
         }
     }
 }
@@ -82,7 +91,11 @@ impl RTObject {
     pub fn get_primary(&self) -> Result<&Primary, InterpretorError> {
         match &self {
             RTObject::Primary(primary) => Ok(&primary),
-            RTObject::Class(_) => Err(InterpretorError::FobbiddenTernay(None)),
+            RTObject::Class(_) => Err(InterpretorError::UnexpectedType(
+                (*self).clone(),
+                "a primitive value".to_string(),
+                None,
+            )),
         }
     }
     pub fn located(self, span: Span) -> LocatedRTObject {
@@ -104,10 +117,9 @@ pub struct Interpreter {
 
 #[derive(Debug, Clone)]
 pub enum InterpretorError {
-    UnexpectedType(Box<LocatedRTObject>, String),
+    UnexpectedType(RTObject, String, Option<Span>),
     ForbiddenUnaryOperation(Unary, Box<LocatedRTObject>),
     ForbiddenBinaryOperation(Operator, Box<LocatedRTObject>, Box<LocatedRTObject>),
-    FobbiddenTernay(Option<Span>),
     ForbidenBreak(Span),
     NotCallable(Box<LocatedRTObject>),
     UnknownFunction(String, Option<Span>),
@@ -122,6 +134,7 @@ pub enum InterpretorError {
     Return(LocatedRTObject),
     UnDeclaredIdentifier(Box<LocatedRTObject>),
     SelfOutsideConstructor(Option<Span>),
+    InvalidAssignmentTarget(Option<Span>),
 }
 impl Diagnostic for InterpretorError {
     fn stage(&self) -> Stage {
@@ -129,22 +142,21 @@ impl Diagnostic for InterpretorError {
     }
     fn span(&self) -> Option<Span> {
         match self {
-            InterpretorError::UnexpectedType(v, _)
-            | InterpretorError::ForbiddenUnaryOperation(_, v)
+            InterpretorError::ForbiddenUnaryOperation(_, v)
             | InterpretorError::NotCallable(v)
             | InterpretorError::Ungetable(v)
             | InterpretorError::UnDeclaredIdentifier(v) => Some(v.span),
-            InterpretorError::ForbiddenBinaryOperation(_, left, right) => Some(Span::new(
-                left.span.start.min(right.span.start),
-                left.span.end.max(right.span.end),
-            )),
+            InterpretorError::ForbiddenBinaryOperation(_, left, right) => {
+                Some(left.span.union(right.span))
+            }
             InterpretorError::UnknownFunction(_, span) => *span,
             InterpretorError::InvalidSignature { span, .. } => *span,
             InterpretorError::ForbidenBreak(span) | InterpretorError::ForbidenContinue(span) => {
                 Some(*span)
             }
-            InterpretorError::FobbiddenTernay(span) => *span,
+            InterpretorError::UnexpectedType(_, _, span) => *span,
             InterpretorError::SelfOutsideConstructor(span) => *span,
+            InterpretorError::InvalidAssignmentTarget(span) => *span,
             InterpretorError::Return(item) => Some(item.span),
         }
     }
@@ -158,11 +170,11 @@ impl Diagnostic for InterpretorError {
                 "Forbidden operator: {} on {} and {}",
                 operator, terminal.inner, terminal1.inner
             ),
-            InterpretorError::FobbiddenTernay(_) => {
-                "left hand side of a ternary should be a boolean or a number".to_string()
-            }
             InterpretorError::SelfOutsideConstructor(_) => {
                 "self can only be used inside a constructor".to_string()
+            }
+            InterpretorError::InvalidAssignmentTarget(_) => {
+                "invalid assignment target: expected a variable or a field".to_string()
             }
             InterpretorError::UnDeclaredIdentifier(v) => {
                 let name = match &v.inner {
@@ -171,11 +183,8 @@ impl Diagnostic for InterpretorError {
                 };
                 format!("Undeclared variable: {}", name)
             }
-            InterpretorError::UnexpectedType(located_primary, expected) => {
-                format!(
-                    "Invalid type: {}, Expected : {}",
-                    located_primary.inner, expected
-                )
+            InterpretorError::UnexpectedType(value, expected, _) => {
+                format!("Invalid type: {}, Expected : {}", value, expected)
             }
             InterpretorError::ForbidenBreak(_) => "Break should be in while loop".to_string(),
             InterpretorError::ForbidenContinue(_) => "Continue should be in while loop".to_string(),
@@ -252,10 +261,7 @@ impl Interpreter {
                         )));
                     }
                 };
-                let call_span = Span::new(
-                    located_primary.span.start,
-                    args_end.unwrap_or(located_primary.span.end),
-                );
+                let call_span = located_primary.span.extended_to(args_end);
                 match self.environment.functions.get(callee).cloned() {
                     Some(function) => function.call(ast, self, &arguments, call_span, None),
                     None => Err(InterpretorError::UnknownFunction(
@@ -268,8 +274,7 @@ impl Interpreter {
                 let expr = self.eval(ast, *expr_id)?;
                 match expr.inner {
                     RTObject::Class(id) => {
-                        let call_span =
-                            Span::new(expr.span.start, args_end.unwrap_or(expr.span.end));
+                        let call_span = expr.span.extended_to(args_end);
                         match self.instance_arena[id].env.functions.get(name).cloned() {
                             Some(function) => {
                                 function.call(ast, self, &arguments, call_span, Some(id))
@@ -331,10 +336,7 @@ impl Interpreter {
         right: LocatedPrimary,
     ) -> Result<LocatedRTObject, InterpretorError> {
         use crate::parser::parser::Operator::*;
-        let span = Span::new(
-            left.span.start.min(right.span.start),
-            left.span.end.max(right.span.end),
-        );
+        let span = left.span.union(right.span);
         let ret = match (&left.inner, &right.inner) {
             (Primary::Number(left_n), Primary::Number(right_n)) => match operator {
                 Equal => Ok(Primary::Boolean(left_n == right_n)),
@@ -485,9 +487,11 @@ impl Interpreter {
                         Primary::Boolean(false) => {}
 
                         _ => {
+                            let span = expr.span;
                             return Err(InterpretorError::UnexpectedType(
-                                Box::new(expr),
+                                expr.inner,
                                 "Boolean".to_string(),
+                                Some(span),
                             ));
                         }
                     };
@@ -505,9 +509,11 @@ impl Interpreter {
                         Primary::Boolean(true) => {}
                         Primary::Boolean(false) => break,
                         _ => {
+                            let span = r.span;
                             return Err(InterpretorError::UnexpectedType(
-                                Box::new(r),
+                                r.inner,
                                 "Boolean".to_string(),
+                                Some(span),
                             ));
                         }
                     };
@@ -521,11 +527,11 @@ impl Interpreter {
             }
             Statement::Break(token) => Err(InterpretorError::ForbidenBreak(token.span)),
             Statement::Continue(token) => Err(InterpretorError::ForbidenContinue(token.span)),
-            Statement::Return(item) => {
+            Statement::Return(token, item) => {
                 let item = if let Some(item) = item {
                     self.eval(ast, *item)?
                 } else {
-                    RTObject::default().located(Span::point(0))
+                    RTObject::default().located(token.span)
                 };
 
                 Err(InterpretorError::Return(item))
@@ -571,7 +577,14 @@ impl Interpreter {
                         true => self.eval(ast, ternary.middle),
                         false => self.eval(ast, ternary.right),
                     },
-                    _ => Err(InterpretorError::FobbiddenTernay(Some(left.span))),
+                    _ => {
+                        let span = left.span;
+                        Err(InterpretorError::UnexpectedType(
+                            left.inner,
+                            "Boolean or Number".to_string(),
+                            Some(span),
+                        ))
+                    }
                 }
             }
             crate::parser::parser::Expr::LogicalAnd(logical_and) => {
@@ -579,7 +592,14 @@ impl Interpreter {
                 match &left.get_primary()? {
                     Primary::Boolean(false) => return Ok(left),
                     Primary::Boolean(true) => return self.eval(ast, logical_and.right),
-                    _ => return Err(InterpretorError::FobbiddenTernay(Some(left.span))),
+                    _ => {
+                        let span = left.span;
+                        return Err(InterpretorError::UnexpectedType(
+                            left.inner,
+                            "Boolean".to_string(),
+                            Some(span),
+                        ));
+                    }
                 }
             }
             crate::parser::parser::Expr::LogicalOr(logical_or) => {
@@ -587,7 +607,14 @@ impl Interpreter {
                 match &left.get_primary()? {
                     Primary::Boolean(true) => return Ok(left),
                     Primary::Boolean(false) => return self.eval(ast, logical_or.right),
-                    _ => return Err(InterpretorError::FobbiddenTernay(Some(left.span))),
+                    _ => {
+                        let span = left.span;
+                        return Err(InterpretorError::UnexpectedType(
+                            left.inner,
+                            "Boolean".to_string(),
+                            Some(span),
+                        ));
+                    }
                 }
             }
             crate::parser::parser::Expr::Assignment(left, right) => {
@@ -596,37 +623,33 @@ impl Interpreter {
                 match &ast.expr_arena[*left] {
                     crate::parser::parser::Expr::Terminal(located_primary) => {
                         match &located_primary.inner {
-                            Primary::String(s) => {
-                                self.environment.assign(&s, &right.inner, right.span)?;
-                                return Ok(right);
-                            }
                             Primary::Identifier(s) => {
                                 self.environment.assign(&s, &right.inner, right.span)?;
                                 return Ok(right);
                             }
                             _ => {
-                                return Err(InterpretorError::FobbiddenTernay(None));
+                                return Err(InterpretorError::InvalidAssignmentTarget(Some(
+                                    located_primary.span,
+                                )));
                             }
                         }
                     }
 
                     crate::parser::parser::Expr::Get(id, s) => {
                         let object = self.eval_get_unamed(ast, *id)?;
-                        match object {
+                        match &object.inner {
                             RTObject::Class(id) => {
-                                self.instance_arena[id]
+                                self.instance_arena[*id]
                                     .env
                                     .assign(&s, &right.inner, right.span)?;
                                 return Ok(right);
                             }
                             _ => {
-                                return Err(InterpretorError::Ungetable(Box::new(
-                                    object.located(Span::point(0)),
-                                )));
+                                return Err(InterpretorError::Ungetable(Box::new(object)));
                             }
                         }
                     }
-                    _ => return Err(InterpretorError::FobbiddenTernay(None)),
+                    _ => return Err(InterpretorError::InvalidAssignmentTarget(None)),
                 }
             }
             crate::parser::parser::Expr::FunctionCall(function_call) => {
@@ -658,10 +681,10 @@ impl Interpreter {
         &mut self,
         ast: &AST,
         expr_id: ExprID,
-    ) -> Result<RTObject, InterpretorError> {
+    ) -> Result<LocatedRTObject, InterpretorError> {
         let expr = self.eval(ast, expr_id)?;
-        match expr.inner.clone() {
-            RTObject::Class(_) => Ok(expr.inner),
+        match &expr.inner {
+            RTObject::Class(_) => Ok(expr),
             RTObject::Primary(_) => Err(InterpretorError::Ungetable(Box::new(expr))),
         }
     }

@@ -133,7 +133,7 @@ pub enum Statement {
     Whileloop(ExprID, StatementID),
     Break(Token),
     Continue(Token),
-    Return(Option<ExprID>),
+    Return(Token, Option<ExprID>),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -164,7 +164,7 @@ pub enum ASTError {
     ExpectedExpression(Token),
     ExpectedIdentifier(Token),
     BinaryNoLeft(Token),
-    RValueAssignment(ExprID),
+    RValueAssignment(Option<Span>),
 }
 
 impl Diagnostic for ASTError {
@@ -177,10 +177,8 @@ impl Diagnostic for ASTError {
             | ASTError::ExpectedExpression(located_token)
             | ASTError::ExpectedIdentifier(located_token)
             | ASTError::BinaryNoLeft(located_token) => Some(located_token.span),
-            ASTError::Eof
-            | ASTError::NoConstructor(_)
-            | ASTError::TooManyArguments
-            | ASTError::RValueAssignment(_) => None,
+            ASTError::Eof | ASTError::NoConstructor(_) | ASTError::TooManyArguments => None,
+            ASTError::RValueAssignment(span) => *span,
         }
     }
     fn message(&self) -> String {
@@ -432,12 +430,13 @@ impl<'a> ASTBuilder<'a> {
             .my_match(&[SimpleToken::KeyWord(KeyWordType::Return)])
             .is_some()
         {
+            let token = self.current(-1);
             let expr = if self.peek() == &TokenKind::Single(SimpleToken::SemiColon) {
                 None
             } else {
                 Some(self.expression()?)
             };
-            let ret = Statement::Return(expr);
+            let ret = Statement::Return(token, expr);
             self.consume(SimpleToken::SemiColon)?;
             Ok(ret)
         } else {
@@ -543,14 +542,14 @@ impl<'a> ASTBuilder<'a> {
                         return Ok(self.emit(Expr::Assignment(left, right)));
                     }
                     _ => {
-                        return Err(ASTError::RValueAssignment(left));
+                        return Err(ASTError::RValueAssignment(Some(located_primary.span)));
                     }
                 },
                 Expr::Get(_, _) => {
                     return Ok(self.emit(Expr::Assignment(left, right)));
                 }
                 _ => {
-                    return Err(ASTError::RValueAssignment(left));
+                    return Err(ASTError::RValueAssignment(None));
                 }
             }
         }
