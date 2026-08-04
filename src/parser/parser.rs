@@ -109,7 +109,7 @@ pub enum Expr {
     Ternary(Ternary),
     LogicalAnd(LogicalAnd),
     LogicalOr(LogicalOr),
-    Assignment(String, Span, ExprID),
+    Assignment(ExprID, ExprID),
     FunctionCall(FunctionCall),
     Get(ExprID, String),
 }
@@ -248,9 +248,10 @@ impl<'a> ASTBuilder<'a> {
         // `advance()` increments `current_index` before returning the token
         // it consumed, so "the token this primary came from" is one behind.
         let span = self.tokens.tokens[(self.current_index as i64 - 1 + offset) as usize].span;
-        self.ast
-            .expr_arena
-            .alloc(Expr::Terminal(LocatedPrimary { inner: primary, span }))
+        self.ast.expr_arena.alloc(Expr::Terminal(LocatedPrimary {
+            inner: primary,
+            span,
+        }))
     }
 
     fn current(&self, offset: i64) -> LocatedToken {
@@ -538,14 +539,19 @@ impl<'a> ASTBuilder<'a> {
             let right = self.expression()?;
             match &self.ast.expr_arena[left] {
                 Expr::Terminal(located_primary) => match &located_primary.inner {
-                    Primary::Identifier(s) => {
-                        return Ok(self.emit(Expr::Assignment(s.clone(), located_primary.span, right)))
+                    Primary::Identifier(_) => {
+                        return Ok(self.emit(Expr::Assignment(left, right)));
                     }
-                    _ => return Err(ASTError::RValueAssignment(left)),
+                    _ => {
+                        return Err(ASTError::RValueAssignment(left));
+                    }
                 },
-                // No chaining assignment for now
-                // Expr::Assignment(s, r) => todo!(),
-                _ => return Err(ASTError::RValueAssignment(left)),
+                Expr::Get(_, _) => {
+                    return Ok(self.emit(Expr::Assignment(left, right)));
+                }
+                _ => {
+                    return Err(ASTError::RValueAssignment(left));
+                }
             }
         }
         Ok(left)

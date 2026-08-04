@@ -1,7 +1,8 @@
 use crate::{
     interpreter::{
+        environment::Environment,
         functions::ForeignFunction,
-        interpreter::{Environment, Interpreter, InterpretorError, RTObject},
+        interpreter::{Interpreter, InterpretorError, RTObject},
     },
     parser::parser::Primary,
 };

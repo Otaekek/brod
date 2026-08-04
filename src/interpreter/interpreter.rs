@@ -1,5 +1,6 @@
 use crate::arena::{Arena, Id};
 use crate::diagnostic::{Diagnostic, Span, Stage};
+use crate::interpreter::environment::Environment;
 use crate::interpreter::functions::ConstructorFunction;
 use crate::interpreter::functions::ForeignFunction;
 use crate::interpreter::functions::Function;
@@ -11,7 +12,7 @@ use crate::{
         LocatedPrimary, Operator, Primary, Statement, Unary,
     },
 };
-use std::{collections::HashMap, fmt::Display, rc::Rc};
+use std::{fmt::Display, rc::Rc};
 impl LocatedPrimary {
     pub fn to_object(self) -> LocatedRTObject {
         RTObject::Primary(self.inner.clone()).locate_with(&self)
@@ -94,84 +95,6 @@ impl RTObject {
         }
     }
 }
-#[derive(Debug, Clone)]
-pub struct Environment {
-    stack: Vec<HashMap<String, RTObject>>,
-    pub functions: HashMap<String, Rc<Function>>,
-}
-
-impl Environment {
-    pub fn new() -> Self {
-        Self {
-            // Start with global scope
-            stack: vec![HashMap::new()],
-            functions: HashMap::new(),
-        }
-    }
-
-    pub fn add(&mut self, name: String, value: RTObject) {
-        let last = self.stack.len() - 1;
-        self.stack[last].insert(name, value);
-    }
-
-    pub fn _check(&mut self, name: &String) -> bool {
-        let last = self.stack.len();
-        for i in 0..self.stack.len() {
-            let r = self.stack[last - i].get(name);
-            if r.is_some() {
-                return true;
-            }
-        }
-        false
-    }
-
-    pub fn assign(
-        &mut self,
-        name: &String,
-        value: &RTObject,
-        ident_span: Span,
-    ) -> Result<(), InterpretorError> {
-        let last = self.stack.len();
-        for i in 0..self.stack.len() {
-            let r = self.stack[last - i - 1].get(name);
-            if r.is_some() {
-                let m = self.stack[last - i - 1].get_mut(name).unwrap();
-                *m = value.clone();
-                return Ok(());
-            }
-        }
-        Err(InterpretorError::UnDeclaredIdentifier(Box::new(
-            Primary::Identifier(name.clone())
-                .located(ident_span)
-                .to_object(),
-        )))
-    }
-
-    pub fn get(
-        &self,
-        name: &String,
-        ident: &LocatedRTObject,
-    ) -> Result<RTObject, InterpretorError> {
-        let last = self.stack.len();
-        for i in 0..self.stack.len() {
-            let r = self.stack[last - i - 1].get(name);
-            if r.is_some() {
-                return Ok(r.unwrap().clone());
-            }
-        }
-
-        Err(InterpretorError::UnDeclaredIdentifier(Box::new(
-            ident.clone(),
-        )))
-    }
-    pub fn push(&mut self) {
-        self.stack.push(HashMap::new());
-    }
-    pub fn pop(&mut self) {
-        self.stack.pop();
-    }
-}
-
 #[derive(Debug)]
 pub struct Interpreter {
     pub environment: Environment,
@@ -658,10 +581,38 @@ impl Interpreter {
                     _ => return Err(InterpretorError::FobbiddenTernay(Some(left.span))),
                 }
             }
-            crate::parser::parser::Expr::Assignment(s, ident_span, expr) => {
-                let expr = self.eval(ast, *expr)?;
-                self.environment.assign(s, &expr.inner, *ident_span)?;
-                Ok(expr)
+            crate::parser::parser::Expr::Assignment(left, right) => {
+                let right = self.eval(ast, *right)?;
+
+                match &ast.expr_arena[*left] {
+                    crate::parser::parser::Expr::Terminal(located_primary) => {
+                        match &located_primary.inner {
+                            Primary::String(s) => {
+                                self.environment.assign(&s, &right.inner, right.span)?;
+                                return Ok(right);
+                            }
+                            _ => return Err(InterpretorError::FobbiddenTernay(None)),
+                        }
+                    }
+
+                    crate::parser::parser::Expr::Get(id, s) => {
+                        let object = self.eval_get_unamed(ast, *id)?;
+                        match object {
+                            RTObject::Class(id) => {
+                                self.instance_arena[id]
+                                    .env
+                                    .assign(&s, &right.inner, right.span)?;
+                                return Ok(right);
+                            }
+                            _ => {
+                                return Err(InterpretorError::Ungetable(Box::new(
+                                    object.located(Span::point(0)),
+                                )));
+                            }
+                        }
+                    }
+                    _ => return Err(InterpretorError::FobbiddenTernay(None)),
+                }
             }
             crate::parser::parser::Expr::FunctionCall(function_call) => {
                 self.function_call(ast, function_call)
@@ -669,11 +620,12 @@ impl Interpreter {
             crate::parser::parser::Expr::Get(expr_id, name) => self.eval_get(ast, *expr_id, name),
         }
     }
+
     pub fn eval_get(
         &mut self,
         ast: &AST,
         expr_id: ExprID,
-        name: &String,
+        name: &str,
     ) -> Result<LocatedRTObject, InterpretorError> {
         let expr = self.eval(ast, expr_id)?;
         match expr.inner.clone() {
@@ -695,6 +647,30 @@ impl Interpreter {
                 .env
                 .get(name, &expr.inner.clone().located(expr.span))
                 .map(|x| x.located(expr.span)),
+        }
+    }
+
+    // Similar to eval_get, but dont actually acces the variable with its name
+    // since we need to modify its value
+    pub fn eval_get_unamed(
+        &mut self,
+        ast: &AST,
+        expr_id: ExprID,
+    ) -> Result<RTObject, InterpretorError> {
+        let expr = self.eval(ast, expr_id)?;
+        match expr.inner.clone() {
+            RTObject::Primary(primary) => match primary {
+                Primary::MySelf => {
+                    if self.my_self.is_empty() {
+                        return Err(InterpretorError::SelfOutsideConstructor(Some(expr.span)));
+                    } else {
+                        return Ok(RTObject::Class(*self.my_self.last().unwrap()));
+                    }
+                }
+                Primary::Identifier(_) => unreachable!("Should be evaluated already"),
+                _ => Err(InterpretorError::Ungetable(Box::new(expr))),
+            },
+            RTObject::Class(_) => Ok(expr.inner),
         }
     }
 }

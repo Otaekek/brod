@@ -1,7 +1,8 @@
 use crate::{
     diagnostic::Span,
-    interpreter::interpreter::{
-        Environment, Instance, Interpreter, InterpretorError, LocatedRTObject, RTObject,
+    interpreter::{
+        environment::Environment,
+        interpreter::{Instance, Interpreter, InterpretorError, LocatedRTObject, RTObject},
     },
     parser::parser::{AST, ClassDefinition, Primary, Statement},
 };
@@ -96,7 +97,9 @@ impl ConstructorFunction {
             name: self.class.name.clone(),
             env,
         });
-        interpreter.my_self.push(id);
+        let env = &mut interpreter.instance_arena[id].env;
+        // env.add("self".to_string(), RTObject::Class(id));
+        // interpreter.my_self.push(id);
         if arguments.len() != self.class.constructor.arguments.len() {
             return Err(InterpretorError::InvalidSignature {
                 name: self.class.name.clone(),
