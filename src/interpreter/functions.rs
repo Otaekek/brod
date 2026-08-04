@@ -97,9 +97,6 @@ impl ConstructorFunction {
             name: self.class.name.clone(),
             env,
         });
-        let env = &mut interpreter.instance_arena[id].env;
-        // env.add("self".to_string(), RTObject::Class(id));
-        // interpreter.my_self.push(id);
         if arguments.len() != self.class.constructor.arguments.len() {
             return Err(InterpretorError::InvalidSignature {
                 name: self.class.name.clone(),

@@ -1,3 +1,5 @@
+use reedline::TextObject;
+
 use crate::arena::{Arena, Id};
 use crate::diagnostic::{Diagnostic, Span, Stage};
 use crate::interpreter::environment::Environment;
@@ -272,11 +274,27 @@ impl Interpreter {
                         let call_span =
                             Span::new(expr.span.start, args_end.unwrap_or(expr.span.end));
                         match self.instance_arena[id].env.functions.get(name).cloned() {
-                            Some(function) => function.call(ast, self, &arguments, call_span),
+                            Some(function) => {
+                                self.my_self.push(id);
+                                let ret = function.call(ast, self, &arguments, call_span);
+                                self.my_self.pop();
+                                ret
+                            }
                             None => Err(InterpretorError::UnknownFunction(name.clone(), None)),
                         }
                     }
-                    _ => unreachable!(),
+                    RTObject::Primary(Primary::MySelf) => {
+                        if !self.my_self.is_empty() {
+                            return Ok(RTObject::Class(*self.my_self.last().unwrap())
+                                .located(Span::point(0)));
+                        } else {
+                            return Err(InterpretorError::SelfOutsideConstructor(None));
+                        }
+                    }
+                    c => {
+                        println!("{:#?}", c);
+                        unreachable!();
+                    }
                 }
             }
             _ => {
@@ -591,7 +609,13 @@ impl Interpreter {
                                 self.environment.assign(&s, &right.inner, right.span)?;
                                 return Ok(right);
                             }
-                            _ => return Err(InterpretorError::FobbiddenTernay(None)),
+                            Primary::Identifier(s) => {
+                                self.environment.assign(&s, &right.inner, right.span)?;
+                                return Ok(right);
+                            }
+                            _ => {
+                                return Err(InterpretorError::FobbiddenTernay(None));
+                            }
                         }
                     }
 
@@ -634,10 +658,10 @@ impl Interpreter {
                     if self.my_self.is_empty() {
                         return Err(InterpretorError::SelfOutsideConstructor(Some(expr.span)));
                     } else {
-                        return Ok(LocatedRTObject {
-                            inner: RTObject::Class(*self.my_self.last().unwrap()),
-                            span: expr.span,
-                        });
+                        let object = &self.instance_arena[*self.my_self.last().unwrap()];
+                        let ident = &RTObject::Primary(Primary::String(name.to_string()))
+                            .located(Span::point(0));
+                        return Ok(object.env.get(name, ident)?.located(Span::point(0)));
                     }
                 }
                 Primary::Identifier(_) => unreachable!("Should be evaluated already"),
