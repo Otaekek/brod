@@ -417,6 +417,7 @@ impl<'a> ASTBuilder<'a> {
                     .into_iter()
                     .map(|x| Primary::Identifier(x))
                     .collect::<Vec<_>>();
+                self.identifiers[self.identifiers_index].clear();
                 return Ok(Statement::Block(Block {
                     locals,
                     declarations,

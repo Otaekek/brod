@@ -21,7 +21,6 @@ impl Resolver {
 
     fn resolve_variable(&mut self, ast: &mut AST, expr: ExprID, name: &str) -> usize {
         let mut scope = self.scope;
-        // println!("{}", scope);
         while (scope > 0) {
             let vars = &self.map[self.scope - 1];
 
@@ -90,18 +89,20 @@ impl Resolver {
                     self.visit_expression(ast, id);
                 }
             }
-            Statement::Block(declarations) => {
-                let declarations = declarations.clone();
+            Statement::Block(block) => {
+                let block = block.clone();
                 self.scope += 1;
 
                 while self.map.len() <= self.scope {
                     self.map.push(HashMap::new());
                 }
 
-                for decl in declarations.declarations {
+                for decl in block.declarations {
                     self.visit_declaration(ast, decl);
                 }
+
                 self.next_id -= self.map[self.scope - 1].len();
+                self.map[self.scope - 1].clear();
                 self.scope -= 1;
             }
             Statement::IfStatement(items, id) => {
@@ -121,8 +122,8 @@ impl Resolver {
             Statement::Break(token) => (),
             Statement::Continue(token) => (),
             Statement::Return(token, id) => {
-                if id.is_some() {
-                    // id.map(|x| self.visit_expression(ast, x));
+                if let Some(id) = id {
+                    self.visit_expression(ast, *id);
                 }
             }
         };
