@@ -19,6 +19,7 @@ pub enum Operator {
 }
 pub type ExprID = Id<Expr>;
 pub type StatementID = Id<Statement>;
+pub type DeclarationID = Id<Declaration>;
 
 #[derive(Copy, Clone, Debug, enum_display::EnumDisplay)]
 pub enum Unary {
@@ -91,7 +92,7 @@ pub struct FunctionCall {
 pub struct FunctionDefinition {
     pub name: String,
     pub arguments: Vec<String>,
-    pub statement: Statement,
+    pub statement: StatementID,
 }
 #[derive(Clone, Debug)]
 pub struct ClassDefinition {
@@ -116,7 +117,7 @@ pub enum Expr {
 
 #[derive(Clone, Debug)]
 pub enum Declaration {
-    Statement(Statement),
+    Statement(StatementID),
     VarDecl(String, ExprID),
     FunctionDefinition(FunctionDefinition),
     ClassDefinition(ClassDefinition),
@@ -128,8 +129,8 @@ pub enum Declaration {
 pub enum Statement {
     ExprStatement(ExprID),
     PrintStatement(Vec<ExprID>),
-    Block(Vec<Declaration>),
-    IfStatement(Vec<(ExprID, Statement)>, Option<StatementID>),
+    Block(Vec<DeclarationID>),
+    IfStatement(Vec<(ExprID, StatementID)>, Option<StatementID>),
     Whileloop(ExprID, StatementID),
     Break(Token),
     Continue(Token),
@@ -141,7 +142,8 @@ pub struct AST {
     pub _tokens: TokenVec,
     pub expr_arena: Arena<Expr>,
     pub statement_arena: Arena<Statement>,
-    pub roots: Vec<Declaration>,
+    pub declaration_arena: Arena<Declaration>,
+    pub roots: Vec<DeclarationID>,
 }
 
 impl AST {
@@ -150,6 +152,7 @@ impl AST {
             _tokens: tokens,
             expr_arena: Arena::with_capacity(4096),
             statement_arena: Arena::with_capacity(4096),
+            declaration_arena: Arena::with_capacity(4096),
             roots: vec![],
         }
     }
@@ -242,6 +245,9 @@ impl<'a> ASTBuilder<'a> {
     fn emit_statment(&mut self, statement: Statement) -> StatementID {
         self.ast.statement_arena.alloc(statement)
     }
+    fn emit_declaration(&mut self, declaration: Declaration) -> DeclarationID {
+        self.ast.declaration_arena.alloc(declaration)
+    }
     fn emit_primary(&mut self, primary: Primary, offset: i64) -> ExprID {
         // `advance()` increments `current_index` before returning the token
         // it consumed, so "the token this primary came from" is one behind.
@@ -297,7 +303,8 @@ impl<'a> ASTBuilder<'a> {
             self.class_definition()
         } else {
             let s = self.statement()?;
-            Ok(Declaration::Statement(s))
+            let id = self.emit_statment(s);
+            Ok(Declaration::Statement(id))
         }
     }
 
@@ -363,6 +370,7 @@ impl<'a> ASTBuilder<'a> {
         }
 
         let block = self.block()?;
+        let block = self.emit_statment(block);
         Ok(Declaration::FunctionDefinition(FunctionDefinition {
             name,
             arguments,
@@ -389,7 +397,8 @@ impl<'a> ASTBuilder<'a> {
                 return Ok(Statement::Block(declarations));
             }
             let declaration = self.declaration()?;
-            declarations.push(declaration);
+            let id = self.emit_declaration(declaration);
+            declarations.push(id);
             if self.is_last() {
                 return Err(ASTError::Eof);
             }
@@ -461,7 +470,8 @@ impl<'a> ASTBuilder<'a> {
         let mut expr = vec![self.expression()?];
         self.consume(SimpleToken::RightParen)?;
         let mut else_stmt = None;
-        let mut stmt = vec![self.statement()?];
+        let first = self.statement()?;
+        let mut stmt = vec![self.emit_statment(first)];
         while self
             .my_match(&[SimpleToken::KeyWord(KeyWordType::Elif)])
             .is_some()
@@ -470,7 +480,8 @@ impl<'a> ASTBuilder<'a> {
             expr.push(self.expression()?);
             self.consume(SimpleToken::RightParen)?;
 
-            stmt.push(self.statement()?);
+            let s = self.statement()?;
+            stmt.push(self.emit_statment(s));
         }
         if self
             .my_match(&[SimpleToken::KeyWord(KeyWordType::Else)])
@@ -825,7 +836,10 @@ impl<'a> ASTBuilder<'a> {
             } else {
                 let declaration = builder.declaration();
                 match declaration {
-                    Ok(declaration) => builder.ast.roots.push(declaration),
+                    Ok(declaration) => {
+                        let id = builder.emit_declaration(declaration);
+                        builder.ast.roots.push(id);
+                    }
                     Err(err) => {
                         errors.push(err);
                         recovery_mode = true;

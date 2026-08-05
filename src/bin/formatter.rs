@@ -4,8 +4,8 @@ use brod::{
     diagnostic::render,
     lexer::lexer,
     parser::parser::{
-        AST, ASTBuilder, ClassDefinition, Declaration, Expr, FunctionCall, FunctionDefinition,
-        LocatedPrimary, Operator, Primary, Statement, Unary,
+        AST, ASTBuilder, ClassDefinition, Declaration, DeclarationID, Expr, FunctionCall,
+        FunctionDefinition, LocatedPrimary, Operator, Primary, Statement, Unary,
     },
 };
 use clap::Parser;
@@ -85,24 +85,24 @@ fn display_function_call(ast: &AST, input: &FunctionCall, indent: usize) {
     print!(")");
 }
 
-fn display_statement(ast: &AST, statement: Statement, indent: usize) {
+fn display_statement(ast: &AST, statement: &Statement, indent: usize) {
     // tabs(indent);
     match statement {
         Statement::ExprStatement(expr) => {
-            display_expression(ast, &ast.expr_arena[expr], indent);
+            display_expression(ast, &ast.expr_arena[*expr], indent);
             println!(";");
         }
         Statement::PrintStatement(items) => {
             print!("print(");
             for x in items {
-                display_expression(ast, &ast.expr_arena[x], indent);
+                display_expression(ast, &ast.expr_arena[*x], indent);
             }
             println!(");");
         }
         Statement::Block(declarations) => {
             println!("{{");
             for x in declarations {
-                display_decl(ast, x, indent + 1);
+                display_decl(ast, *x, indent + 1);
             }
             tabs(indent);
             println!("}}");
@@ -112,35 +112,35 @@ fn display_statement(ast: &AST, statement: Statement, indent: usize) {
             let f = items.first().unwrap();
             display_expression(ast, &ast.expr_arena[f.0], indent);
             println!(")");
-            display_statement(ast, f.1.clone(), indent);
+            display_statement(ast, &ast.statement_arena[f.1], indent);
             for f in &items[1..] {
                 print!("else if (");
                 display_expression(ast, &ast.expr_arena[f.0], indent);
                 println!(")");
-                display_statement(ast, f.1.clone(), indent);
+                display_statement(ast, &ast.statement_arena[f.1], indent);
             }
             if let Some(block) = block {
-                display_statement(ast, ast.statement_arena[block].clone(), indent);
+                display_statement(ast, &ast.statement_arena[*block], indent);
             }
         }
         Statement::Whileloop(cond, statement) => {
             print!("while (");
-            display_expression(ast, &ast.expr_arena[cond], indent);
+            display_expression(ast, &ast.expr_arena[*cond], indent);
             print!(") ");
-            display_statement(ast, ast.statement_arena[statement].clone(), indent);
+            display_statement(ast, &ast.statement_arena[*statement], indent);
         }
         Statement::Break(_) => println!("break;"),
         Statement::Continue(_) => println!("continue;"),
         Statement::Return(_, expr_id) => {
             print!("return");
             if let Some(expr_id) = expr_id {
-                display_expression(ast, &ast.expr_arena[expr_id], indent);
+                display_expression(ast, &ast.expr_arena[*expr_id], indent);
             }
             println!(";");
         }
     };
 }
-fn display_function_definition(ast: &AST, function_definition: FunctionDefinition, indent: usize) {
+fn display_function_definition(ast: &AST, function_definition: &FunctionDefinition, indent: usize) {
     print!("fn {} (", function_definition.name);
 
     for i in 0..function_definition.arguments.len() {
@@ -152,17 +152,17 @@ fn display_function_definition(ast: &AST, function_definition: FunctionDefinitio
         }
     }
     print!(" ");
-    display_statement(ast, function_definition.statement, indent);
+    display_statement(ast, &ast.statement_arena[function_definition.statement], indent);
 }
 
-fn display_class_definition(ast: &AST, class_definition: ClassDefinition, indent: usize) {
+fn display_class_definition(ast: &AST, class_definition: &ClassDefinition, indent: usize) {
     println!("class {} {{", class_definition.name);
 
-    for v in class_definition.fields {
+    for v in &class_definition.fields {
         tabs(indent);
         println!("var {};", v);
     }
-    for f in class_definition.functions {
+    for f in &class_definition.functions {
         tabs(indent);
         display_function_definition(ast, f, indent + 1);
     }
@@ -170,13 +170,15 @@ fn display_class_definition(ast: &AST, class_definition: ClassDefinition, indent
     println!("}}");
 }
 
-fn display_decl(ast: &AST, declaration: Declaration, indent: usize) {
+fn display_decl(ast: &AST, declaration: DeclarationID, indent: usize) {
     tabs(indent);
-    match declaration {
-        Declaration::Statement(statement) => display_statement(ast, statement, indent),
+    match &ast.declaration_arena[declaration] {
+        Declaration::Statement(statement) => {
+            display_statement(ast, &ast.statement_arena[*statement], indent)
+        }
         Declaration::VarDecl(s, expr_id) => {
             print!("var {} = ", s);
-            display_expression(ast, &ast.expr_arena[expr_id], indent);
+            display_expression(ast, &ast.expr_arena[*expr_id], indent);
             println!(";");
         }
         Declaration::FunctionDefinition(function_definition) => {
@@ -190,8 +192,8 @@ fn display_decl(ast: &AST, declaration: Declaration, indent: usize) {
     }
 }
 pub fn display_ast(ast: &AST) {
-    for declaration in ast.roots.clone() {
-        display_decl(ast, declaration, 0);
+    for declaration in &ast.roots {
+        display_decl(ast, *declaration, 0);
         println!("");
     }
 }

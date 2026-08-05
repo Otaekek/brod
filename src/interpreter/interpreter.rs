@@ -215,21 +215,23 @@ impl Diagnostic for InterpretorError {
 }
 
 impl Interpreter {
-    pub fn declare_function(&mut self, definition: FunctionDefinition) {
+    pub fn declare_function(&mut self, definition: &FunctionDefinition) {
         self.environment.functions.insert(
             definition.name.clone(),
             Rc::new(Function::Resident(ResidentFunction {
-                name: definition.name,
-                arguments: definition.arguments,
+                name: definition.name.clone(),
+                arguments: definition.arguments.clone(),
                 statement: definition.statement,
             })),
         );
     }
 
-    pub fn declare_constructor(&mut self, class: ClassDefinition) {
+    pub fn declare_constructor(&mut self, class: &ClassDefinition) {
         self.environment.functions.insert(
             class.constructor.name.clone(),
-            Rc::new(Function::Constructor(ConstructorFunction { class: class })),
+            Rc::new(Function::Constructor(ConstructorFunction {
+                class: class.clone(),
+            })),
         );
     }
     pub fn bind_forein(&mut self, name: &str, function: ForeignFunction) {
@@ -419,7 +421,9 @@ impl Interpreter {
         input: &Declaration,
     ) -> Result<RTObject, InterpretorError> {
         match input {
-            Declaration::Statement(statement) => self.eval_statement(ast, statement),
+            Declaration::Statement(statement) => {
+                self.eval_statement(ast, &ast.statement_arena[*statement])
+            }
             Declaration::VarDecl(ident, expr_id) => {
                 let value = self.eval(ast, *expr_id)?;
                 self.environment.add(ident.clone(), value.inner.clone());
@@ -428,11 +432,11 @@ impl Interpreter {
             Declaration::Empty => Ok(RTObject::Primary(Primary::Nil)),
             Declaration::Comment(_) => Ok(RTObject::Primary(Primary::Nil)),
             Declaration::FunctionDefinition(function_definition) => {
-                self.declare_function(function_definition.clone());
+                self.declare_function(function_definition);
                 Ok(RTObject::Primary(Primary::Nil))
             }
             Declaration::ClassDefinition(class) => {
-                self.declare_constructor(class.clone());
+                self.declare_constructor(class);
                 Ok(RTObject::Primary(Primary::Nil))
             }
         }
@@ -462,7 +466,8 @@ impl Interpreter {
             Statement::Block(declarations) => {
                 let mut last = Primary::Nil.to_object();
                 self.environment.push();
-                for declaration in declarations {
+                for declaration_id in declarations {
+                    let declaration = &ast.declaration_arena[*declaration_id];
                     match declaration {
                         Declaration::Comment(_) => continue,
                         _ => (),
@@ -483,7 +488,9 @@ impl Interpreter {
                 for (expr, stmt) in ifelses.iter() {
                     let expr = self.eval(ast, *expr)?;
                     match expr.get_primary()? {
-                        Primary::Boolean(true) => return self.eval_statement(ast, stmt),
+                        Primary::Boolean(true) => {
+                            return self.eval_statement(ast, &ast.statement_arena[*stmt]);
+                        }
                         Primary::Boolean(false) => {}
 
                         _ => {
@@ -693,9 +700,9 @@ impl Interpreter {
 pub fn eval(ast: AST, interpreter: &mut Interpreter) -> Result<RTObject, InterpretorError> {
     let mut last = RTObject::default();
     while interpreter.head < ast.roots.len() {
-        let root = &ast.roots[interpreter.head];
+        let root = ast.roots[interpreter.head];
         interpreter.head += 1;
-        let ret = interpreter.eval_declaration(&ast, root)?;
+        let ret = interpreter.eval_declaration(&ast, &ast.declaration_arena[root])?;
         last = ret;
     }
     Ok(last)

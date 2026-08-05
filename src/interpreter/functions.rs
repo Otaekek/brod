@@ -4,7 +4,7 @@ use crate::{
         environment::Environment,
         interpreter::{Instance, InstanceId, Interpreter, InterpretorError, LocatedRTObject, RTObject},
     },
-    parser::parser::{AST, ClassDefinition, Primary, Statement},
+    parser::parser::{AST, ClassDefinition, Primary, StatementID},
 };
 #[derive(Clone, Debug)]
 pub struct ForeignFunction {
@@ -35,7 +35,7 @@ impl ForeignFunction {
 pub struct ResidentFunction {
     pub name: String,
     pub arguments: Vec<String>,
-    pub statement: Statement,
+    pub statement: StatementID,
 }
 
 impl ResidentFunction {
@@ -66,7 +66,7 @@ impl ResidentFunction {
         for (name, value) in self.arguments.iter().zip(arguments.iter()) {
             interpreter.environment.add(name.clone(), value.clone());
         }
-        let ret = interpreter.eval_statement(ast, &self.statement);
+        let ret = interpreter.eval_statement(ast, &ast.statement_arena[self.statement]);
         interpreter.environment.pop();
         ret
     }
@@ -94,7 +94,7 @@ impl ConstructorFunction {
                 std::rc::Rc::new(Function::Resident(ResidentFunction {
                     name: f.name.clone(),
                     arguments: f.arguments.clone(),
-                    statement: f.statement.clone(),
+                    statement: f.statement,
                 })),
             );
         }
@@ -125,7 +125,7 @@ impl ConstructorFunction {
         {
             interpreter.environment.add(name.clone(), value.clone());
         }
-        interpreter.eval_statement(ast, &self.class.constructor.statement)?;
+        interpreter.eval_statement(ast, &ast.statement_arena[self.class.constructor.statement])?;
         interpreter.environment.pop();
         Ok(RTObject::Class(id))
     }
