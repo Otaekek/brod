@@ -104,7 +104,16 @@ impl Resolver {
                 self.next_id -= self.map[self.scope - 1].len();
                 self.scope -= 1;
             }
-            Statement::IfStatement(items, id) => todo!(),
+            Statement::IfStatement(items, id) => {
+                let id = id.clone();
+                for (expr_id, statement_id) in items.clone() {
+                    self.visit_expression(ast, expr_id);
+                    self.visit_statement(ast, statement_id);
+                }
+                if let Some(id) = id {
+                    self.visit_statement(ast, id);
+                }
+            }
             Statement::Whileloop(id, id1) => {
                 let id1 = *id1;
                 self.visit_statement(ast, id1);

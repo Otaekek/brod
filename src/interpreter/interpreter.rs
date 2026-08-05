@@ -108,12 +108,13 @@ impl RTObject {
         }
     }
 }
+
 #[derive(Debug)]
 pub struct Interpreter {
     pub environment: Environment,
     pub instance_arena: InstanceArena,
     pub stack: Vec<RTObject>,
-    pub stack_index: usize,
+    pub scope_index: usize,
     head: usize,
 }
 
@@ -301,7 +302,7 @@ impl Interpreter {
             instance_arena: InstanceArena::default(),
             head: 0,
             stack: Vec::with_capacity(4096),
-            stack_index: 0,
+            scope_index: 0,
         };
         init_foreign_functions(&mut ret);
         ret
@@ -430,7 +431,13 @@ impl Interpreter {
             }
             Declaration::VarDecl(ident, expr_id) => {
                 let value = self.eval(ast, *expr_id)?;
-                self.environment.add(ident.clone(), value.inner.clone());
+                // global scope: use hash map for repl convenience
+                if self.scope_index == 0 {
+                    self.environment.add(ident.clone(), value.inner.clone());
+                } else {
+                    // inner scope: indexed lookup on the stack
+                    self.stack.push(value.inner.clone());
+                }
                 Ok(value.inner)
             }
             Declaration::Empty => Ok(RTObject::Primary(Primary::Nil)),
@@ -467,10 +474,11 @@ impl Interpreter {
                 }
                 Ok(RTObject::Primary(Primary::Nil))
             }
-            Statement::Block(declarations) => {
+            Statement::Block(block) => {
+                self.scope_index += 1;
                 let mut last = Primary::Nil.to_object();
                 self.environment.push();
-                for declaration_id in &declarations.declarations {
+                for declaration_id in &block.declarations {
                     let declaration = &ast.declaration_arena[*declaration_id];
                     match declaration {
                         Declaration::Comment(_) => continue,
@@ -486,6 +494,10 @@ impl Interpreter {
                     }
                 }
                 self.environment.pop();
+                for i in 0..block.locals.len() {
+                    self.stack.pop();
+                }
+                self.scope_index -= 1;
                 Ok(last)
             }
             Statement::IfStatement(ifelses, else_stmt) => {
@@ -564,6 +576,9 @@ impl Interpreter {
                         ),
                         Err(e) => Err(e),
                     }
+                }
+                Primary::Local(index) => {
+                    return Ok(self.stack[*index].clone().located(Span::point(0)));
                 }
                 _ => return Ok(terminal.clone().to_object()),
             },
