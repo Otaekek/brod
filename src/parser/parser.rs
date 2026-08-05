@@ -41,6 +41,7 @@ pub enum Primary {
     Boolean(bool),
     Identifier(String),
     Nil,
+    Local(usize),
 }
 impl Primary {
     pub fn located(self, span: Span) -> LocatedPrimary {
@@ -56,6 +57,7 @@ impl Display for Primary {
             Primary::Nil => write!(f, "{}", "Nil"),
             Primary::Identifier(s) => write!(f, "Identifier({})", s),
             Primary::MySelf => write!(f, "{}", "Self"),
+            Primary::Local(l) => write!(f, "local: {}", l),
         }
     }
 }
@@ -91,9 +93,10 @@ pub struct FunctionCall {
 #[derive(Clone, Debug)]
 pub struct FunctionDefinition {
     pub name: String,
-    pub arguments: Vec<String>,
+    pub arguments: Vec<Primary>,
     pub statement: StatementID,
 }
+
 #[derive(Clone, Debug)]
 pub struct ClassDefinition {
     pub name: String,
@@ -126,10 +129,16 @@ pub enum Declaration {
 }
 
 #[derive(Clone, Debug)]
+pub struct Block {
+    pub locals: Vec<Primary>,
+    pub declarations: Vec<DeclarationID>,
+}
+
+#[derive(Clone, Debug)]
 pub enum Statement {
     ExprStatement(ExprID),
     PrintStatement(Vec<ExprID>),
-    Block(Vec<DeclarationID>),
+    Block(Block),
     IfStatement(Vec<(ExprID, StatementID)>, Option<StatementID>),
     Whileloop(ExprID, StatementID),
     Break(Token),
@@ -218,6 +227,8 @@ impl Diagnostic for ASTError {
 
 pub struct ASTBuilder<'a> {
     current_index: usize,
+    identifiers: Vec<Vec<String>>,
+    identifiers_index: usize,
     tokens: TokenVec,
     ast: &'a mut AST,
 }
@@ -292,11 +303,13 @@ impl<'a> ASTBuilder<'a> {
                 _ => unreachable!(),
             };
             return Ok(Declaration::Comment(text));
-        } else if self.current(0).kind == TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Var)) {
+        } else if self.current(0).kind == TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Var))
+        {
             let d = self.vardecl()?;
             self.consume(SimpleToken::SemiColon)?;
             Ok(d)
-        } else if self.current(0).kind == TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Fun)) {
+        } else if self.current(0).kind == TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Fun))
+        {
             let d = self.function_def()?;
             Ok(d)
         } else if self.check(&TokenKind::Single(SimpleToken::KeyWord(KeyWordType::Class))) {
@@ -363,7 +376,7 @@ impl<'a> ASTBuilder<'a> {
         let mut arguments = vec![];
         while !self.my_match(&[SimpleToken::RightParen]).is_some() {
             let argument_name = self.get_identifier_string()?;
-            arguments.push(argument_name);
+            arguments.push(Primary::String(argument_name));
             if self.peek() != &TokenKind::Single(SimpleToken::RightParen) {
                 self.consume(SimpleToken::Comma)?;
             }
@@ -391,10 +404,23 @@ impl<'a> ASTBuilder<'a> {
 
     fn block(&mut self) -> Result<Statement, ASTError> {
         self.consume(SimpleToken::LeftBrace)?;
+        self.identifiers_index += 1;
+        while self.identifiers.len() <= self.identifiers_index {
+            self.identifiers.push(vec![]);
+        }
         let mut declarations = vec![];
         loop {
             if self.my_match(&[SimpleToken::RightBrace]).is_some() {
-                return Ok(Statement::Block(declarations));
+                self.identifiers_index -= 1;
+                let locals = self.identifiers[self.identifiers_index]
+                    .clone()
+                    .into_iter()
+                    .map(|x| Primary::Identifier(x))
+                    .collect::<Vec<_>>();
+                return Ok(Statement::Block(Block {
+                    locals,
+                    declarations,
+                }));
             }
             let declaration = self.declaration()?;
             let id = self.emit_declaration(declaration);
@@ -502,7 +528,12 @@ impl<'a> ASTBuilder<'a> {
         self.consume(SimpleToken::Equal)?;
         let right = self.expression()?;
         match ident {
-            TokenKind::Identifier(s) => return Ok(Declaration::VarDecl(s, right)),
+            TokenKind::Identifier(s) => {
+                if self.identifiers_index > 0 {
+                    self.identifiers[self.identifiers_index - 1].push(s.clone());
+                }
+                return Ok(Declaration::VarDecl(s, right));
+            }
             _ => Err(ASTError::ExpectedIdentifier(self.current(-3))),
         }
     }
@@ -820,6 +851,8 @@ impl<'a> ASTBuilder<'a> {
             current_index: 0,
             tokens: input.clone(),
             ast,
+            identifiers: vec![vec![]],
+            identifiers_index: 0,
         };
         let mut recovery_mode = false;
         while builder.current_index.clone() < builder.tokens.tokens.len() {

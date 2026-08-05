@@ -23,6 +23,7 @@ fn display_primary(_ast: &AST, primary: &LocatedPrimary, _indent: usize) {
         Primary::Identifier(s) => print!("{}", s),
         Primary::Nil => print!("nil"),
         Primary::MySelf => todo!(),
+        Primary::Local(_) => todo!(),
     };
 }
 fn display_expression(ast: &AST, expr: &Expr, indent: usize) {
@@ -99,9 +100,9 @@ fn display_statement(ast: &AST, statement: &Statement, indent: usize) {
             }
             println!(");");
         }
-        Statement::Block(declarations) => {
+        Statement::Block(block) => {
             println!("{{");
-            for x in declarations {
+            for x in &block.declarations {
                 display_decl(ast, *x, indent + 1);
             }
             tabs(indent);
@@ -152,7 +153,11 @@ fn display_function_definition(ast: &AST, function_definition: &FunctionDefiniti
         }
     }
     print!(" ");
-    display_statement(ast, &ast.statement_arena[function_definition.statement], indent);
+    display_statement(
+        ast,
+        &ast.statement_arena[function_definition.statement],
+        indent,
+    );
 }
 
 fn display_class_definition(ast: &AST, class_definition: &ClassDefinition, indent: usize) {

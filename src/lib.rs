@@ -6,7 +6,10 @@ pub mod parser;
 use crate::{
     diagnostic::render,
     interpreter::interpreter::Interpreter,
-    parser::parser::{AST, ASTBuilder},
+    parser::{
+        parser::{AST, ASTBuilder},
+        resolver,
+    },
 };
 
 use colored::Colorize;
@@ -20,10 +23,13 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
         eprintln!("{}", render(&err, source, &source_name));
     } else if let Ok(tokens) = tokens {
         let res = ASTBuilder::parse(tokens, ast);
+
         for err in &res.1 {
             eprintln!("{}", render(err, source, &source_name));
         }
         if res.1.is_empty() {
+            let mut resolver = resolver::Resolver::init();
+            resolver.resolve(ast);
             let result = interpreter::interpreter::eval(ast.clone(), interpreter);
             match result {
                 Ok(v) => {

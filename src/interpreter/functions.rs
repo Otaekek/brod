@@ -2,7 +2,9 @@ use crate::{
     diagnostic::Span,
     interpreter::{
         environment::Environment,
-        interpreter::{Instance, InstanceId, Interpreter, InterpretorError, LocatedRTObject, RTObject},
+        interpreter::{
+            Instance, InstanceId, Interpreter, InterpretorError, LocatedRTObject, RTObject,
+        },
     },
     parser::parser::{AST, ClassDefinition, Primary, StatementID},
 };
@@ -93,7 +95,7 @@ impl ConstructorFunction {
                 f.name.clone(),
                 std::rc::Rc::new(Function::Resident(ResidentFunction {
                     name: f.name.clone(),
-                    arguments: f.arguments.clone(),
+                    arguments: vec![], //TODO f.arguments.clone(),
                     statement: f.statement,
                 })),
             );
@@ -123,7 +125,7 @@ impl ConstructorFunction {
             .iter()
             .zip(arguments.iter())
         {
-            interpreter.environment.add(name.clone(), value.clone());
+            // TODO            interpreter.environment.add(name.clone(), value.clone());
         }
         interpreter.eval_statement(ast, &ast.statement_arena[self.class.constructor.statement])?;
         interpreter.environment.pop();

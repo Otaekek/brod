@@ -112,6 +112,8 @@ impl RTObject {
 pub struct Interpreter {
     pub environment: Environment,
     pub instance_arena: InstanceArena,
+    pub stack: Vec<RTObject>,
+    pub stack_index: usize,
     head: usize,
 }
 
@@ -220,7 +222,7 @@ impl Interpreter {
             definition.name.clone(),
             Rc::new(Function::Resident(ResidentFunction {
                 name: definition.name.clone(),
-                arguments: definition.arguments.clone(),
+                arguments: vec![], //TODO definition.arguments.clone(),
                 statement: definition.statement,
             })),
         );
@@ -298,6 +300,8 @@ impl Interpreter {
             environment: Environment::new(),
             instance_arena: InstanceArena::default(),
             head: 0,
+            stack: Vec::with_capacity(4096),
+            stack_index: 0,
         };
         init_foreign_functions(&mut ret);
         ret
@@ -466,7 +470,7 @@ impl Interpreter {
             Statement::Block(declarations) => {
                 let mut last = Primary::Nil.to_object();
                 self.environment.push();
-                for declaration_id in declarations {
+                for declaration_id in &declarations.declarations {
                     let declaration = &ast.declaration_arena[*declaration_id];
                     match declaration {
                         Declaration::Comment(_) => continue,
@@ -646,9 +650,11 @@ impl Interpreter {
                         let object = self.eval_get_unamed(ast, *id)?;
                         match &object.inner {
                             RTObject::Class(id) => {
-                                self.instance_arena[*id]
-                                    .env
-                                    .assign(&s, &right.inner, right.span)?;
+                                self.instance_arena[*id].env.assign(
+                                    &s,
+                                    &right.inner,
+                                    right.span,
+                                )?;
                                 return Ok(right);
                             }
                             _ => {
