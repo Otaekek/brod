@@ -459,6 +459,20 @@ impl Lexer {
             if self.state == State::Default {
                 self.start = self.current;
             }
+            if !self.source.as_bytes()[self.current].is_ascii() {
+                let shown = self
+                    .source
+                    .get(self.current..)
+                    .and_then(|s| s.chars().next())
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "invalid UTF-8".to_string());
+                return Err(LexError {
+                    message: format!(
+                        "Unexpected character \"{shown}\": only ASCII source is supported for now"
+                    ),
+                    span: Span::point(self.current),
+                });
+            }
             let c = self.current();
             let (new_state, action) = self.fsm.compute(c as u8, self.state);
             match action {
