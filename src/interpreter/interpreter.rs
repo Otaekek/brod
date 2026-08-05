@@ -653,6 +653,10 @@ impl Interpreter {
                                 self.environment.assign(&s, &right.inner, right.span)?;
                                 return Ok(right);
                             }
+                            Primary::Local(index) => {
+                                self.stack[*index] = right.clone().inner;
+                                return Ok(right);
+                            }
                             _ => {
                                 return Err(InterpretorError::InvalidAssignmentTarget(Some(
                                     located_primary.span,
