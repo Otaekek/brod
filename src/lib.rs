@@ -71,3 +71,22 @@ pub fn run_file(source: PathBuf, interpreter: &mut Interpreter, ast: &mut AST) {
     let as_str = String::from_utf8(buf).expect("Only utf-8 encoding is accepted");
     run(&as_str, source.display().to_string(), interpreter, ast);
 }
+
+const PRELUDE_PATH: &str = "prelude/prelude.brod";
+
+pub fn load_prelude(interpreter: &mut Interpreter, ast: &mut AST) {
+    let path = PathBuf::from(PRELUDE_PATH);
+    match read(&path) {
+        Ok(buf) => {
+            let source = String::from_utf8(buf).expect("Only utf-8 encoding is accepted");
+            run(&source, path.display().to_string(), interpreter, ast);
+        }
+        Err(_) => {
+            eprintln!(
+                "{}: could not find prelude at {} — continuing without it (use --no-prelude to silence this)",
+                "Warning".yellow(),
+                path.display()
+            );
+        }
+    }
+}

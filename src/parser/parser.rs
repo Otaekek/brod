@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Display;
 
 use crate::arena::{Arena, Id};
@@ -267,6 +268,8 @@ pub struct ASTBuilder<'a> {
     scope_stack: usize,
     tokens: TokenVec,
     ast: &'a mut AST,
+    next_function_index: usize,
+    functions: HashMap<String, usize>,
 }
 
 /// Statement → expression | print | assignment ;
@@ -411,6 +414,9 @@ impl<'a> ASTBuilder<'a> {
         }
         self.consume(SimpleToken::KeyWord(KeyWordType::Fun))?;
         let name = self.get_identifier_string()?;
+        self.functions
+            .insert(name.clone(), self.next_function_index);
+        self.next_function_index += 1;
         self.consume(SimpleToken::LeftParen)?;
         let mut arguments = vec![];
         while !self.my_match(&[SimpleToken::RightParen]).is_some() {
@@ -897,7 +903,10 @@ impl<'a> ASTBuilder<'a> {
             identifiers: vec![vec![]],
             identifiers_index: 0,
             scope_stack: 0,
+            next_function_index: 0,
+            functions: HashMap::with_capacity(4096),
         };
+
         let mut recovery_mode = false;
         while builder.current_index.clone() < builder.tokens.tokens.len() {
             if recovery_mode {

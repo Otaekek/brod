@@ -1,4 +1,6 @@
-use brod::{interpreter::interpreter::Interpreter, parser::parser::AST, run_file, run_repl};
+use brod::{
+    interpreter::interpreter::Interpreter, load_prelude, parser::parser::AST, run_file, run_repl,
+};
 use clap::Parser;
 
 use std::{path::PathBuf, process::exit};
@@ -9,11 +11,17 @@ struct CliArgs {
     /// After running the script, drop into an interactive prompt sharing its state.
     #[arg(short, long)]
     interactive: bool,
+    /// Skip loading prelude/prelude.brod (loaded by default).
+    #[arg(long)]
+    no_prelude: bool,
 }
 fn main() {
     let mut interpreter = Interpreter::new();
     let mut ast = AST::default();
     let args = CliArgs::parse();
+    if !args.no_prelude {
+        load_prelude(&mut interpreter, &mut ast);
+    }
     if let Some(source) = args.source_path {
         if source.extension().and_then(|ext| ext.to_str()) != Some("brod") {
             eprintln!("Error: Only .brod files are accepted");
