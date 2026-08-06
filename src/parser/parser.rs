@@ -41,23 +41,37 @@ pub enum Primary {
     Boolean(bool),
     Identifier(String),
     Nil,
-    Local(usize),
+    Local((usize, usize)),
 }
 impl Primary {
     pub fn located(self, span: Span) -> LocatedPrimary {
         LocatedPrimary { inner: self, span }
     }
 }
+// impl Display for Primary {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         match self {
+//             Primary::Number(v) => write!(f, "Number: {}", v),
+//             Primary::String(v) => write!(f, "String: {}", v),
+//             Primary::Boolean(v) => write!(f, "Bool: {}", v),
+//             Primary::Nil => write!(f, "{}", "Nil"),
+//             Primary::Identifier(s) => write!(f, "Identifier({})", s),
+//             Primary::MySelf => write!(f, "{}", "Self"),
+//             Primary::Local(l) => write!(f, "local: {}", l),
+//         }
+//     }
+// }
+
 impl Display for Primary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Primary::Number(v) => write!(f, "Number: {}", v),
-            Primary::String(v) => write!(f, "String: {}", v),
-            Primary::Boolean(v) => write!(f, "Bool: {}", v),
+            Primary::Number(v) => write!(f, "{}", v),
+            Primary::String(v) => write!(f, "{}", v),
+            Primary::Boolean(v) => write!(f, "{}", v),
             Primary::Nil => write!(f, "{}", "Nil"),
-            Primary::Identifier(s) => write!(f, "Identifier({})", s),
+            Primary::Identifier(s) => write!(f, "{}", s),
             Primary::MySelf => write!(f, "{}", "Self"),
-            Primary::Local(l) => write!(f, "local: {}", l),
+            Primary::Local(_) => unreachable!("Should be resolved already"),
         }
     }
 }
@@ -229,6 +243,7 @@ pub struct ASTBuilder<'a> {
     current_index: usize,
     identifiers: Vec<Vec<String>>,
     identifiers_index: usize,
+    scope_stack: usize,
     tokens: TokenVec,
     ast: &'a mut AST,
 }
@@ -370,6 +385,9 @@ impl<'a> ASTBuilder<'a> {
     }
 
     fn function_def(&mut self) -> Result<Declaration, ASTError> {
+        if self.scope_stack > 0 {
+            return Err(ASTError::Eof);
+        }
         self.consume(SimpleToken::KeyWord(KeyWordType::Fun))?;
         let name = self.get_identifier_string()?;
         self.consume(SimpleToken::LeftParen)?;
@@ -403,6 +421,7 @@ impl<'a> ASTBuilder<'a> {
     }
 
     fn block(&mut self) -> Result<Statement, ASTError> {
+        self.scope_stack += 1;
         self.consume(SimpleToken::LeftBrace)?;
         self.identifiers_index += 1;
         while self.identifiers.len() <= self.identifiers_index {
@@ -418,6 +437,7 @@ impl<'a> ASTBuilder<'a> {
                     .map(|x| Primary::Identifier(x))
                     .collect::<Vec<_>>();
                 self.identifiers[self.identifiers_index].clear();
+                self.scope_stack -= 1;
                 return Ok(Statement::Block(Block {
                     locals,
                     declarations,
@@ -854,6 +874,7 @@ impl<'a> ASTBuilder<'a> {
             ast,
             identifiers: vec![vec![]],
             identifiers_index: 0,
+            scope_stack: 0,
         };
         let mut recovery_mode = false;
         while builder.current_index.clone() < builder.tokens.tokens.len() {

@@ -36,7 +36,6 @@ impl ForeignFunction {
 #[derive(Clone, Debug)]
 pub struct ResidentFunction {
     pub name: String,
-    pub arguments: Vec<String>,
     pub statement: StatementID,
 }
 
@@ -49,14 +48,14 @@ impl ResidentFunction {
         call_span: Span,
         self_id: Option<InstanceId>,
     ) -> Result<RTObject, InterpretorError> {
-        if arguments.len() != self.arguments.len() {
-            return Err(InterpretorError::InvalidSignature {
-                name: self.name.clone(),
-                expected: self.arguments.len(),
-                actual: arguments.len(),
-                span: Some(call_span),
-            });
-        }
+        // if arguments.len() != self.arguments.len() {
+        //     return Err(InterpretorError::InvalidSignature {
+        //         name: self.name.clone(),
+        //         expected: self.arguments.len(),
+        //         actual: arguments.len(),
+        //         span: Some(call_span),
+        //     });
+        // }
 
         interpreter.environment.push();
         if let Some(id) = self_id {
@@ -65,9 +64,6 @@ impl ResidentFunction {
                 .add("self".to_string(), RTObject::Class(id));
         }
 
-        for (name, value) in self.arguments.iter().zip(arguments.iter()) {
-            interpreter.environment.add(name.clone(), value.clone());
-        }
         let ret = interpreter.eval_statement(ast, &ast.statement_arena[self.statement]);
         interpreter.environment.pop();
         ret
@@ -95,7 +91,6 @@ impl ConstructorFunction {
                 f.name.clone(),
                 std::rc::Rc::new(Function::Resident(ResidentFunction {
                     name: f.name.clone(),
-                    arguments: vec![], //TODO f.arguments.clone(),
                     statement: f.statement,
                 })),
             );
@@ -118,15 +113,6 @@ impl ConstructorFunction {
             .environment
             .add("self".to_string(), RTObject::Class(id));
 
-        for (name, value) in self
-            .class
-            .constructor
-            .arguments
-            .iter()
-            .zip(arguments.iter())
-        {
-            // TODO            interpreter.environment.add(name.clone(), value.clone());
-        }
         interpreter.eval_statement(ast, &ast.statement_arena[self.class.constructor.statement])?;
         interpreter.environment.pop();
         Ok(RTObject::Class(id))

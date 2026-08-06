@@ -114,7 +114,8 @@ pub struct Interpreter {
     pub environment: Environment,
     pub instance_arena: InstanceArena,
     pub stack: Vec<RTObject>,
-    pub scope_index: usize,
+    pub calling_function: usize,
+    scope_stack: Vec<usize>,
     head: usize,
 }
 
@@ -223,7 +224,6 @@ impl Interpreter {
             definition.name.clone(),
             Rc::new(Function::Resident(ResidentFunction {
                 name: definition.name.clone(),
-                arguments: vec![], //TODO definition.arguments.clone(),
                 statement: definition.statement,
             })),
         );
@@ -248,15 +248,20 @@ impl Interpreter {
         ast: &AST,
         function_call: &FunctionCall,
     ) -> Result<LocatedRTObject, InterpretorError> {
+        self.calling_function += 1;
         let evaluated_args = function_call
             .arguments
             .iter()
             .map(|expr_id| self.eval(ast, *expr_id))
             .collect::<Result<Vec<_>, _>>()?;
+        self.scope_stack.push(self.stack.len());
         let args_end = evaluated_args.iter().map(|v| v.span.end).max();
         let arguments: Vec<RTObject> = evaluated_args.into_iter().map(|v| v.inner).collect();
+        for arg in &arguments {
+            self.stack.push(arg.clone());
+        }
 
-        match &ast.expr_arena[function_call.func] {
+        let ret = match &ast.expr_arena[function_call.func] {
             crate::parser::parser::Expr::Terminal(located_primary) => {
                 let callee = match &located_primary.inner {
                     Primary::Identifier(s) => s,
@@ -294,15 +299,22 @@ impl Interpreter {
                 let evaluated = self.eval(ast, function_call.func)?;
                 Err(InterpretorError::NotCallable(Box::new(evaluated)))
             }
+        };
+
+        for _ in &arguments {
+            self.stack.pop();
         }
+        self.scope_stack.pop();
+        ret
     }
     pub fn new() -> Self {
         let mut ret = Self {
             environment: Environment::new(),
             instance_arena: InstanceArena::default(),
-            head: 0,
             stack: Vec::with_capacity(4096),
-            scope_index: 0,
+            scope_stack: Vec::with_capacity(4096),
+            head: 0,
+            calling_function: 0,
         };
         init_foreign_functions(&mut ret);
         ret
@@ -432,7 +444,7 @@ impl Interpreter {
             Declaration::VarDecl(ident, expr_id) => {
                 let value = self.eval(ast, *expr_id)?;
                 // global scope: use hash map for repl convenience
-                if self.scope_index == 0 {
+                if self.scope_stack.is_empty() {
                     self.environment.add(ident.clone(), value.inner.clone());
                 } else {
                     // inner scope: indexed lookup on the stack
@@ -467,7 +479,7 @@ impl Interpreter {
                             let v = self
                                 .environment
                                 .get(s, &r.clone().get_located_primary()?.to_object())?;
-                            println!("{:#?}", v);
+                            println!("{}", v);
                         }
                         x => println!("{x}"),
                     }
@@ -475,7 +487,13 @@ impl Interpreter {
                 Ok(RTObject::Primary(Primary::Nil))
             }
             Statement::Block(block) => {
-                self.scope_index += 1;
+                let calling_function_local = self.calling_function;
+                if self.calling_function != 0 {
+                    self.calling_function -= 1;
+                }
+                if calling_function_local == 0 {
+                    self.scope_stack.push(self.stack.len());
+                }
                 let mut last = Primary::Nil.to_object();
                 self.environment.push();
                 for declaration_id in &block.declarations {
@@ -489,15 +507,23 @@ impl Interpreter {
                         Ok(r) => last = r,
                         Err(r) => {
                             self.environment.pop();
+                            for _ in 0..block.locals.len() {
+                                self.stack.pop();
+                            }
+                            if calling_function_local == 0 {
+                                self.scope_stack.pop();
+                            }
                             return Err(r);
                         }
                     }
                 }
                 self.environment.pop();
-                for i in 0..block.locals.len() {
+                for _ in 0..block.locals.len() {
                     self.stack.pop();
                 }
-                self.scope_index -= 1;
+                if calling_function_local == 0 {
+                    self.scope_stack.pop();
+                }
                 Ok(last)
             }
             Statement::IfStatement(ifelses, else_stmt) => {
@@ -577,8 +603,14 @@ impl Interpreter {
                         Err(e) => Err(e),
                     }
                 }
-                Primary::Local(index) => {
-                    return Ok(self.stack[*index].clone().located(Span::point(0)));
+                Primary::Local((index, scope)) => {
+                    // println!(
+                    //     "{} {}{ :#?} {:#?}",
+                    //     *index, scope, self.scope_stack, self.stack
+                    // );
+                    return Ok(self.stack[*index + self.scope_stack[*scope]]
+                        .clone()
+                        .located(Span::point(0)));
                 }
                 _ => return Ok(terminal.clone().to_object()),
             },
@@ -653,8 +685,8 @@ impl Interpreter {
                                 self.environment.assign(&s, &right.inner, right.span)?;
                                 return Ok(right);
                             }
-                            Primary::Local(index) => {
-                                self.stack[*index] = right.clone().inner;
+                            Primary::Local((index, scope)) => {
+                                self.stack[*index + self.scope_stack[*scope]] = right.clone().inner;
                                 return Ok(right);
                             }
                             _ => {
