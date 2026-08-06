@@ -25,7 +25,6 @@ impl Resolver {
         _expr: ExprID,
         name: &str,
     ) -> Option<(usize, usize)> {
-        // println!("{:#?}", self.map);
         let mut scope = self.map.len();
         for vars in self.map.iter().rev() {
             if let Some(index) = vars.get(name) {

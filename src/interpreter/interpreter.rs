@@ -254,9 +254,17 @@ impl Interpreter {
             .iter()
             .map(|expr_id| self.eval(ast, *expr_id))
             .collect::<Result<Vec<_>, _>>()?;
-        self.scope_stack.push(self.stack.len());
+        let len = self.stack.len();
+
+        if self.scope_stack.is_empty() {
+            self.scope_stack.push(len);
+        } else {
+            self.scope_stack[0] = len;
+        }
+        // self.scope_stack.push(self.stack.len());
         let args_end = evaluated_args.iter().map(|v| v.span.end).max();
         let arguments: Vec<RTObject> = evaluated_args.into_iter().map(|v| v.inner).collect();
+
         for arg in &arguments {
             self.stack.push(arg.clone());
         }
