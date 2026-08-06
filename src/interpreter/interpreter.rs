@@ -232,28 +232,38 @@ impl Interpreter {
                 arguments: definition.argument_names(),
             })));
 
-        // self.environment.functions.insert(
-        //     definition.name.clone(),
-        // Rc::new(Function::Resident(ResidentFunction {
-        //     name: definition.name.clone(),
-        //     statement: definition.statement,
-        //     arguments: definition.argument_names(),
-        // })),
-        // );
+        self.environment.functions.insert(
+            definition.name.clone(),
+            Rc::new(Function::Resident(ResidentFunction {
+                name: definition.name.clone(),
+                statement: definition.statement,
+                arguments: definition.argument_names(),
+            })),
+        );
     }
 
-    pub fn declare_constructor(&mut self, class: &ClassDefinition) {
-        // self.environment.functions.insert(
-        //     class.constructor.name.clone(),
-        //     Rc::new(Function::Constructor(ConstructorFunction {
-        //         class: class.clone(),
-        //     })),
-        // );
+    pub fn declare_constructor(&mut self, ast: &AST, class: &ClassDefinition) {
+        self.functions[ast.functions[&class.constructor.name]] =
+            Some(Rc::new(Function::Constructor(ConstructorFunction {
+                class: class.clone(),
+            })));
+
+        self.environment.functions.insert(
+            class.constructor.name.clone(),
+            Rc::new(Function::Constructor(ConstructorFunction {
+                class: class.clone(),
+            })),
+        );
     }
     pub fn bind_forein(&mut self, name: &str, function: ForeignFunction) {
-        // self.environment
-        //     .functions
-        //     .insert(name.to_string(), Rc::new(Function::Foreign(function)));
+        let function = Rc::new(Function::Foreign(function));
+        if let Some(index) = crate::interpreter::foreign_function::FOREIGN_FUNCTION_NAMES
+            .iter()
+            .position(|n| *n == name)
+        {
+            self.functions[index] = Some(function.clone());
+        }
+        self.environment.functions.insert(name.to_string(), function);
     }
 
     fn function_call(
@@ -261,13 +271,6 @@ impl Interpreter {
         ast: &AST,
         function_call: &FunctionCall,
     ) -> Result<LocatedRTObject, InterpretorError> {
-        // let evaluated_args: [RTObject; 5] = function_call
-        //     .arguments
-        //     .iter()
-        //     .take(5)
-        //     .map(|expr_id| self.eval(ast, *expr_id))
-        //     .collect()?;
-
         let evaluated_args = function_call
             .arguments
             .iter()
@@ -301,21 +304,21 @@ impl Interpreter {
                 let func = self.functions[*callee].clone();
                 func.unwrap().call(ast, self, &arguments, call_span, None)
             }
-            // crate::parser::parser::Expr::Get(expr_id, name) => {
-            //     let expr = self.eval(ast, *expr_id)?;
-            //     match expr.inner {
-            //         RTObject::Class(id) => {
-            //             let call_span = expr.span.extended_to(args_end);
-            //             match self.instance_arena[id].env.functions.get(name).cloned() {
-            //                 Some(function) => {
-            //                     function.call(ast, self, &arguments, call_span, Some(id))
-            //                 }
-            //                 None => Err(InterpretorError::UnknownFunction(name.clone(), None)),
-            //             }
-            //         }
-            //         _ => Err(InterpretorError::Ungetable(Box::new(expr))),
-            //     }
-            // }
+            crate::parser::parser::Expr::Get(expr_id, name) => {
+                let expr = self.eval(ast, *expr_id)?;
+                match expr.inner {
+                    RTObject::Class(id) => {
+                        let call_span = expr.span.extended_to(args_end);
+                        match self.instance_arena[id].env.functions.get(name).cloned() {
+                            Some(function) => {
+                                function.call(ast, self, &arguments, call_span, Some(id))
+                            }
+                            None => Err(InterpretorError::UnknownFunction(name.clone(), None)),
+                        }
+                    }
+                    _ => Err(InterpretorError::Ungetable(Box::new(expr))),
+                }
+            }
             _ => {
                 let evaluated = self.eval(ast, function_call.func)?;
                 Err(InterpretorError::NotCallable(Box::new(evaluated)))
@@ -470,8 +473,6 @@ impl Interpreter {
             }
             Declaration::VarDecl(ident, expr_id) => {
                 let value = self.eval(ast, *expr_id)?;
-                // global scope, or inside a method/constructor (never resolved
-                // to a stack slot): use the name-keyed environment.
                 if self.depth == 0 || self.in_method_or_constructor {
                     self.environment.add(ident.clone(), value.inner.clone());
                 } else {
@@ -487,7 +488,7 @@ impl Interpreter {
                 Ok(RTObject::Primary(Primary::Nil))
             }
             Declaration::ClassDefinition(class) => {
-                self.declare_constructor(class);
+                self.declare_constructor(ast, class);
                 Ok(RTObject::Primary(Primary::Nil))
             }
         }

@@ -1,5 +1,8 @@
 use brod::{
-    interpreter::interpreter::Interpreter, load_prelude, parser::parser::AST, run_file, run_repl,
+    interpreter::{foreign_function::register_foreign_functions, interpreter::Interpreter},
+    load_prelude,
+    parser::parser::AST,
+    run_file, run_repl,
 };
 use clap::Parser;
 
@@ -8,16 +11,15 @@ use std::{path::PathBuf, process::exit};
 #[derive(Clone, Debug, Parser)]
 struct CliArgs {
     source_path: Option<PathBuf>,
-    /// After running the script, drop into an interactive prompt sharing its state.
     #[arg(short, long)]
     interactive: bool,
-    /// Skip loading prelude/prelude.brod (loaded by default).
     #[arg(long)]
     no_prelude: bool,
 }
 fn main() {
     let mut interpreter = Interpreter::new();
     let mut ast = AST::default();
+    register_foreign_functions(&mut ast);
     let args = CliArgs::parse();
     if !args.no_prelude {
         load_prelude(&mut interpreter, &mut ast);

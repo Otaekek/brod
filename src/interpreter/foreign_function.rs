@@ -4,8 +4,17 @@ use crate::{
         functions::ForeignFunction,
         interpreter::{Interpreter, InterpretorError, RTObject},
     },
-    parser::parser::Primary,
+    parser::parser::{AST, Primary},
 };
+
+pub const FOREIGN_FUNCTION_NAMES: &[&str] = &["sin", "cos", "abs", "env", "now", "exit"];
+
+pub fn register_foreign_functions(ast: &mut AST) {
+    for (index, name) in FOREIGN_FUNCTION_NAMES.iter().enumerate() {
+        ast.functions.insert(name.to_string(), index);
+    }
+    ast.next_function_index = FOREIGN_FUNCTION_NAMES.len();
+}
 
 pub fn sin(input: &[RTObject], _env: &mut Environment) -> Result<RTObject, InterpretorError> {
     match input[0].get_primary()? {

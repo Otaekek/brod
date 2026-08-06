@@ -9,6 +9,7 @@ pub struct Resolver {
     map: Vec<HashMap<String, usize>>,
     globals: HashSet<String>,
     building_function: bool,
+    in_class_body: bool,
 }
 
 impl Resolver {
@@ -17,6 +18,7 @@ impl Resolver {
             map: vec![],
             globals: HashSet::new(),
             building_function: false,
+            in_class_body: false,
         }
     }
 
@@ -42,7 +44,7 @@ impl Resolver {
         // Global scope: Early return
         match ast.expr_arena[expr].clone() {
             Expr::Terminal(located_primary) => match located_primary.inner {
-                Primary::Identifier(name) => {
+                Primary::Identifier(name) if !self.in_class_body => {
                     let resolved = self.resolve_variable(&name, located_primary.span)?;
                     if let Some((index, scope)) = resolved {
                         ast.expr_arena[expr] =
@@ -76,20 +78,25 @@ impl Resolver {
                 self.visit_expression(ast, id1)?;
             }
             Expr::FunctionCall(function_call) => {
-                match &ast.expr_arena[function_call.func] {
+                let bare_name = match &ast.expr_arena[function_call.func] {
                     Expr::Terminal(located_primary) => match &located_primary.inner {
-                        Primary::Identifier(s) => {
-                            if let Some(index) = ast.functions.get(s) {
-                                ast.expr_arena[function_call.func] = Expr::Terminal(
-                                    Primary::FunctionId(*index).located(located_primary.span),
-                                )
-                            } else {
-                                return Err(ASTError::Eof);
-                            }
-                        }
-                        _ => (),
+                        Primary::Identifier(s) => Some((s.clone(), located_primary.span)),
+                        _ => None,
                     },
-                    _ => (),
+                    _ => None,
+                };
+                match bare_name {
+                    Some((name, span)) => {
+                        if let Some(index) = ast.functions.get(&name) {
+                            ast.expr_arena[function_call.func] =
+                                Expr::Terminal(Primary::FunctionId(*index).located(span));
+                        } else {
+                            return Err(ASTError::UnknownFunction(name, span));
+                        }
+                    }
+                    None => {
+                        self.visit_expression(ast, function_call.func)?;
+                    }
                 }
                 for x in function_call.arguments {
                     self.visit_expression(ast, x)?;
@@ -170,7 +177,6 @@ impl Resolver {
             Declaration::VarDecl(name, id) => {
                 let id = *id;
                 let name = name.clone();
-                // Global scope, used mostly for the REPL: nothing to resolve.
                 if self.map.is_empty() {
                     self.globals.insert(name);
                 } else {
@@ -195,7 +201,21 @@ impl Resolver {
                 self.visit_statement(ast, statement)?;
                 self.map.pop();
             }
-            Declaration::ClassDefinition(_class_definition) => (),
+            Declaration::ClassDefinition(class_definition) => {
+                let constructor_statement = class_definition.constructor.statement;
+                let method_statements: Vec<StatementID> = class_definition
+                    .functions
+                    .iter()
+                    .map(|f| f.statement)
+                    .collect();
+                let saved_in_class_body = self.in_class_body;
+                self.in_class_body = true;
+                self.visit_statement(ast, constructor_statement)?;
+                for statement in method_statements {
+                    self.visit_statement(ast, statement)?;
+                }
+                self.in_class_body = saved_in_class_body;
+            }
             Declaration::Comment(_) => (),
             Declaration::Empty => (),
         };

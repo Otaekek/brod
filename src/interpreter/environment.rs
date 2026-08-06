@@ -7,7 +7,7 @@ use std::{collections::HashMap, rc::Rc};
 #[derive(Debug, Clone)]
 pub struct Environment {
     stack: Vec<HashMap<String, RTObject>>,
-    // pub functions: HashMap<String, Rc<Function>>,
+    pub functions: HashMap<String, Rc<Function>>,
 }
 
 impl Environment {
@@ -15,7 +15,7 @@ impl Environment {
         Self {
             // Start with global scope
             stack: vec![HashMap::new()],
-            // functions: HashMap::new(),
+            functions: HashMap::new(),
         }
     }
 

@@ -58,7 +58,9 @@ impl ResidentFunction {
             });
         }
 
-        if interpreter.in_method_or_constructor {
+        let is_method = self_id.is_some();
+
+        if is_method {
             interpreter.environment.push();
         }
         if let Some(id) = self_id {
@@ -66,19 +68,19 @@ impl ResidentFunction {
                 .environment
                 .add("self".to_string(), RTObject::Class(id));
         }
-        if interpreter.in_method_or_constructor {
+        if is_method {
             for (name, value) in self.arguments.iter().zip(arguments.iter()) {
                 interpreter.environment.add(name.clone(), value.clone());
             }
         }
 
         let saved_in_method = interpreter.in_method_or_constructor;
-        interpreter.in_method_or_constructor = self_id.is_some();
+        interpreter.in_method_or_constructor = is_method;
         interpreter.entering_function_body = true;
         let ret = interpreter.eval_statement(ast, &ast.statement_arena[self.statement]);
         interpreter.in_method_or_constructor = saved_in_method;
 
-        if interpreter.in_method_or_constructor {
+        if is_method {
             interpreter.environment.pop();
         }
         ret
@@ -101,16 +103,16 @@ impl ConstructorFunction {
         for n in &self.class.fields {
             env.add(n.clone(), RTObject::Primary(Primary::Nil));
         }
-        // for f in &self.class.functions {
-        //     env.functions.insert(
-        //         f.name.clone(),
-        //         std::rc::Rc::new(Function::Resident(ResidentFunction {
-        //             name: f.name.clone(),
-        //             statement: f.statement,
-        //             arguments: f.argument_names(),
-        //         })),
-        //     );
-        // }
+        for f in &self.class.functions {
+            env.functions.insert(
+                f.name.clone(),
+                std::rc::Rc::new(Function::Resident(ResidentFunction {
+                    name: f.name.clone(),
+                    statement: f.statement,
+                    arguments: f.argument_names(),
+                })),
+            );
+        }
 
         let id = interpreter.instance_arena.alloc(Instance {
             name: self.class.name.clone(),

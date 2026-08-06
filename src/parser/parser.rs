@@ -50,19 +50,6 @@ impl Primary {
         LocatedPrimary { inner: self, span }
     }
 }
-// impl Display for Primary {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self {
-//             Primary::Number(v) => write!(f, "Number: {}", v),
-//             Primary::String(v) => write!(f, "String: {}", v),
-//             Primary::Boolean(v) => write!(f, "Bool: {}", v),
-//             Primary::Nil => write!(f, "{}", "Nil"),
-//             Primary::Identifier(s) => write!(f, "Identifier({})", s),
-//             Primary::MySelf => write!(f, "{}", "Self"),
-//             Primary::Local(l) => write!(f, "local: {}", l),
-//         }
-//     }
-// }
 
 impl Display for Primary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -184,6 +171,7 @@ pub struct AST {
     pub declaration_arena: Arena<Declaration>,
     pub roots: Vec<DeclarationID>,
     pub functions: HashMap<String, usize>,
+    pub next_function_index: usize,
 }
 
 impl AST {
@@ -195,6 +183,7 @@ impl AST {
             declaration_arena: Arena::with_capacity(4096),
             roots: vec![],
             functions: HashMap::new(),
+            next_function_index: 0,
         }
     }
 }
@@ -211,6 +200,7 @@ pub enum ASTError {
     RValueAssignment(Option<Span>),
     FunctionDeclarationInBlock(Token),
     UndeclaredVariable(String, Span),
+    UnknownFunction(String, Span),
 }
 
 impl Diagnostic for ASTError {
@@ -227,6 +217,7 @@ impl Diagnostic for ASTError {
             ASTError::Eof | ASTError::NoConstructor(_) | ASTError::TooManyArguments => None,
             ASTError::RValueAssignment(span) => *span,
             ASTError::UndeclaredVariable(_, span) => Some(*span),
+            ASTError::UnknownFunction(_, span) => Some(*span),
         }
     }
     fn message(&self) -> String {
@@ -261,6 +252,7 @@ impl Diagnostic for ASTError {
                 "Functions can only be declared at the top level, not inside a block".to_string()
             }
             ASTError::UndeclaredVariable(name, _) => format!("Undeclared variable: {}", name),
+            ASTError::UnknownFunction(name, _) => format!("Unknown function: {}", name),
         }
     }
 }
@@ -272,7 +264,6 @@ pub struct ASTBuilder<'a> {
     scope_stack: usize,
     tokens: TokenVec,
     ast: &'a mut AST,
-    next_function_index: usize,
 }
 
 /// Statement → expression | print | assignment ;
@@ -302,8 +293,6 @@ impl<'a> ASTBuilder<'a> {
         self.ast.declaration_arena.alloc(declaration)
     }
     fn emit_primary(&mut self, primary: Primary, offset: i64) -> ExprID {
-        // `advance()` increments `current_index` before returning the token
-        // it consumed, so "the token this primary came from" is one behind.
         let span = self.tokens.tokens[(self.current_index as i64 - 1 + offset) as usize].span;
         self.ast.expr_arena.alloc(Expr::Terminal(LocatedPrimary {
             inner: primary,
@@ -419,8 +408,8 @@ impl<'a> ASTBuilder<'a> {
         let name = self.get_identifier_string()?;
         self.ast
             .functions
-            .insert(name.clone(), self.next_function_index);
-        self.next_function_index += 1;
+            .insert(name.clone(), self.ast.next_function_index);
+        self.ast.next_function_index += 1;
         self.consume(SimpleToken::LeftParen)?;
         let mut arguments = vec![];
         while !self.my_match(&[SimpleToken::RightParen]).is_some() {
@@ -907,7 +896,6 @@ impl<'a> ASTBuilder<'a> {
             identifiers: vec![vec![]],
             identifiers_index: 0,
             scope_stack: 0,
-            next_function_index: 0,
         };
 
         let mut recovery_mode = false;
