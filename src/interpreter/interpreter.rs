@@ -117,6 +117,7 @@ pub struct Interpreter {
     pub entering_function_body: bool,
     pub in_method_or_constructor: bool,
     depth: usize,
+    functions: Vec<Option<Rc<Function>>>,
     scope_stack: Vec<usize>,
     head: usize,
 }
@@ -223,29 +224,36 @@ impl Diagnostic for InterpretorError {
 }
 
 impl Interpreter {
-    pub fn declare_function(&mut self, definition: &FunctionDefinition) {
-        self.environment.functions.insert(
-            definition.name.clone(),
-            Rc::new(Function::Resident(ResidentFunction {
+    pub fn declare_function(&mut self, ast: &AST, definition: &FunctionDefinition) {
+        self.functions[ast.functions[&definition.name]] =
+            Some(Rc::new(Function::Resident(ResidentFunction {
                 name: definition.name.clone(),
                 statement: definition.statement,
                 arguments: definition.argument_names(),
-            })),
-        );
+            })));
+
+        // self.environment.functions.insert(
+        //     definition.name.clone(),
+        // Rc::new(Function::Resident(ResidentFunction {
+        //     name: definition.name.clone(),
+        //     statement: definition.statement,
+        //     arguments: definition.argument_names(),
+        // })),
+        // );
     }
 
     pub fn declare_constructor(&mut self, class: &ClassDefinition) {
-        self.environment.functions.insert(
-            class.constructor.name.clone(),
-            Rc::new(Function::Constructor(ConstructorFunction {
-                class: class.clone(),
-            })),
-        );
+        // self.environment.functions.insert(
+        //     class.constructor.name.clone(),
+        //     Rc::new(Function::Constructor(ConstructorFunction {
+        //         class: class.clone(),
+        //     })),
+        // );
     }
     pub fn bind_forein(&mut self, name: &str, function: ForeignFunction) {
-        self.environment
-            .functions
-            .insert(name.to_string(), Rc::new(Function::Foreign(function)));
+        // self.environment
+        //     .functions
+        //     .insert(name.to_string(), Rc::new(Function::Foreign(function)));
     }
 
     fn function_call(
@@ -253,6 +261,13 @@ impl Interpreter {
         ast: &AST,
         function_call: &FunctionCall,
     ) -> Result<LocatedRTObject, InterpretorError> {
+        // let evaluated_args: [RTObject; 5] = function_call
+        //     .arguments
+        //     .iter()
+        //     .take(5)
+        //     .map(|expr_id| self.eval(ast, *expr_id))
+        //     .collect()?;
+
         let evaluated_args = function_call
             .arguments
             .iter()
@@ -275,7 +290,7 @@ impl Interpreter {
         let ret = match &ast.expr_arena[function_call.func] {
             crate::parser::parser::Expr::Terminal(located_primary) => {
                 let callee = match &located_primary.inner {
-                    Primary::Identifier(s) => s,
+                    Primary::FunctionId(s) => s,
                     _ => {
                         return Err(InterpretorError::NotCallable(Box::new(
                             located_primary.clone().to_object(),
@@ -283,29 +298,24 @@ impl Interpreter {
                     }
                 };
                 let call_span = located_primary.span.extended_to(args_end);
-                match self.environment.functions.get(callee).cloned() {
-                    Some(function) => function.call(ast, self, &arguments, call_span, None),
-                    None => Err(InterpretorError::UnknownFunction(
-                        callee.clone(),
-                        Some(located_primary.span),
-                    )),
-                }
+                let func = self.functions[*callee].clone();
+                func.unwrap().call(ast, self, &arguments, call_span, None)
             }
-            crate::parser::parser::Expr::Get(expr_id, name) => {
-                let expr = self.eval(ast, *expr_id)?;
-                match expr.inner {
-                    RTObject::Class(id) => {
-                        let call_span = expr.span.extended_to(args_end);
-                        match self.instance_arena[id].env.functions.get(name).cloned() {
-                            Some(function) => {
-                                function.call(ast, self, &arguments, call_span, Some(id))
-                            }
-                            None => Err(InterpretorError::UnknownFunction(name.clone(), None)),
-                        }
-                    }
-                    _ => Err(InterpretorError::Ungetable(Box::new(expr))),
-                }
-            }
+            // crate::parser::parser::Expr::Get(expr_id, name) => {
+            //     let expr = self.eval(ast, *expr_id)?;
+            //     match expr.inner {
+            //         RTObject::Class(id) => {
+            //             let call_span = expr.span.extended_to(args_end);
+            //             match self.instance_arena[id].env.functions.get(name).cloned() {
+            //                 Some(function) => {
+            //                     function.call(ast, self, &arguments, call_span, Some(id))
+            //                 }
+            //                 None => Err(InterpretorError::UnknownFunction(name.clone(), None)),
+            //             }
+            //         }
+            //         _ => Err(InterpretorError::Ungetable(Box::new(expr))),
+            //     }
+            // }
             _ => {
                 let evaluated = self.eval(ast, function_call.func)?;
                 Err(InterpretorError::NotCallable(Box::new(evaluated)))
@@ -319,6 +329,9 @@ impl Interpreter {
         ret
     }
     pub fn new() -> Self {
+        let mut functions = Vec::new();
+
+        functions.resize(4096, None);
         let mut ret = Self {
             environment: Environment::new(),
             instance_arena: InstanceArena::default(),
@@ -328,6 +341,7 @@ impl Interpreter {
             entering_function_body: false,
             in_method_or_constructor: false,
             depth: 0,
+            functions,
         };
         init_foreign_functions(&mut ret);
         ret
@@ -469,7 +483,7 @@ impl Interpreter {
             Declaration::Empty => Ok(RTObject::Primary(Primary::Nil)),
             Declaration::Comment(_) => Ok(RTObject::Primary(Primary::Nil)),
             Declaration::FunctionDefinition(function_definition) => {
-                self.declare_function(function_definition);
+                self.declare_function(ast, function_definition);
                 Ok(RTObject::Primary(Primary::Nil))
             }
             Declaration::ClassDefinition(class) => {

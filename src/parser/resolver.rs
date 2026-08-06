@@ -40,10 +40,6 @@ impl Resolver {
 
     fn visit_expression(&mut self, ast: &mut AST, expr: ExprID) -> Result<(), ASTError> {
         // Global scope: Early return
-        if self.map.is_empty() {
-            return Ok(());
-        }
-
         match ast.expr_arena[expr].clone() {
             Expr::Terminal(located_primary) => match located_primary.inner {
                 Primary::Identifier(name) => {
@@ -80,6 +76,21 @@ impl Resolver {
                 self.visit_expression(ast, id1)?;
             }
             Expr::FunctionCall(function_call) => {
+                match &ast.expr_arena[function_call.func] {
+                    Expr::Terminal(located_primary) => match &located_primary.inner {
+                        Primary::Identifier(s) => {
+                            if let Some(index) = ast.functions.get(s) {
+                                ast.expr_arena[function_call.func] = Expr::Terminal(
+                                    Primary::FunctionId(*index).located(located_primary.span),
+                                )
+                            } else {
+                                return Err(ASTError::Eof);
+                            }
+                        }
+                        _ => (),
+                    },
+                    _ => (),
+                }
                 for x in function_call.arguments {
                     self.visit_expression(ast, x)?;
                 }

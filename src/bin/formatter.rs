@@ -22,10 +22,12 @@ fn display_primary(_ast: &AST, primary: &LocatedPrimary, _indent: usize) {
         Primary::Boolean(s) => print!("{}", s),
         Primary::Identifier(s) => print!("{}", s),
         Primary::Nil => print!("nil"),
-        Primary::MySelf => todo!(),
-        Primary::Local(_) => todo!(),
+        Primary::MySelf => unreachable!(),
+        Primary::Local(_) => unreachable!(),
+        Primary::FunctionId(_) => unreachable!(),
     };
 }
+
 fn display_expression(ast: &AST, expr: &Expr, indent: usize) {
     match expr {
         Expr::Terminal(located_primary) => display_primary(ast, located_primary, indent),

@@ -43,6 +43,7 @@ pub enum Primary {
     Identifier(String),
     Nil,
     Local((usize, usize)),
+    FunctionId(usize),
 }
 impl Primary {
     pub fn located(self, span: Span) -> LocatedPrimary {
@@ -73,6 +74,7 @@ impl Display for Primary {
             Primary::Identifier(s) => write!(f, "{}", s),
             Primary::MySelf => write!(f, "{}", "Self"),
             Primary::Local(_) => unreachable!("Should be resolved already"),
+            Primary::FunctionId(_) => unreachable!(),
         }
     }
 }
@@ -181,6 +183,7 @@ pub struct AST {
     pub statement_arena: Arena<Statement>,
     pub declaration_arena: Arena<Declaration>,
     pub roots: Vec<DeclarationID>,
+    pub functions: HashMap<String, usize>,
 }
 
 impl AST {
@@ -191,6 +194,7 @@ impl AST {
             statement_arena: Arena::with_capacity(4096),
             declaration_arena: Arena::with_capacity(4096),
             roots: vec![],
+            functions: HashMap::new(),
         }
     }
 }
@@ -269,7 +273,6 @@ pub struct ASTBuilder<'a> {
     tokens: TokenVec,
     ast: &'a mut AST,
     next_function_index: usize,
-    functions: HashMap<String, usize>,
 }
 
 /// Statement → expression | print | assignment ;
@@ -414,7 +417,8 @@ impl<'a> ASTBuilder<'a> {
         }
         self.consume(SimpleToken::KeyWord(KeyWordType::Fun))?;
         let name = self.get_identifier_string()?;
-        self.functions
+        self.ast
+            .functions
             .insert(name.clone(), self.next_function_index);
         self.next_function_index += 1;
         self.consume(SimpleToken::LeftParen)?;
@@ -904,7 +908,6 @@ impl<'a> ASTBuilder<'a> {
             identifiers_index: 0,
             scope_stack: 0,
             next_function_index: 0,
-            functions: HashMap::with_capacity(4096),
         };
 
         let mut recovery_mode = false;
