@@ -1,9 +1,8 @@
-pub mod arena;
+pub mod containers;
 pub mod diagnostic;
 pub mod interpreter;
 pub mod lexer;
 pub mod parser;
-pub mod tinyvec;
 use crate::{
     diagnostic::render,
     interpreter::interpreter::Interpreter,

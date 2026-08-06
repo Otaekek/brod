@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use crate::arena::{Arena, Id};
+use crate::containers::arena::{Arena, Id};
 use crate::diagnostic::{Diagnostic, Span, Stage};
 use crate::lexer::lexer::{KeyWordType, SimpleToken, Token, TokenKind, TokenVec};
 

@@ -1,4 +1,4 @@
-use crate::arena::{Arena, Id};
+use crate::containers::arena::{Arena, Id};
 use crate::diagnostic::{Diagnostic, Span, Stage};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::functions::ConstructorFunction;
