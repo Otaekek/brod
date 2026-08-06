@@ -1,0 +1,155 @@
+var g = 10;
+print(g == 10);
+
+// --- no arguments, only body-local vars + return ---
+fn no_args() {
+	var v = 5;
+	return v * 2;
+}
+print(no_args() == 10);
+
+// --- a single argument, used directly ---
+fn double(n) {
+	return n * 2;
+}
+print(double(21) == 42);
+
+// --- several arguments, mixed with a body-local var in the same frame ---
+fn scaled_sum(a, b, c) {
+	var factor = 2;
+	return (a + b + c) * factor;
+}
+print(scaled_sum(1, 2, 3) == 12);
+
+// --- argument used inside an if, both branches ---
+fn abs_val(n) {
+	if (n < 0) {
+		return 0 - n;
+	}
+	return n;
+}
+print(abs_val(-5) == 5);
+print(abs_val(5) == 5);
+
+// --- a local variable shadowing the function's own argument name ---
+fn shadow_arg(x) {
+	var y = x;
+	{
+		var x = y + 100;
+		print(x == 105);
+	}
+	return x;
+}
+print(shadow_arg(5) == 5);
+
+// --- nested blocks inside a function body, several levels deep ---
+fn nested_in_fn(n) {
+	var total = n;
+	{
+		var step = 1;
+		{
+			var step2 = 2;
+			total = total + step + step2;
+		}
+	}
+	return total;
+}
+print(nested_in_fn(10) == 13);
+
+// --- a function calling another function, each with their own arguments ---
+fn triple(n) {
+	return n * 3;
+}
+fn triple_then_double(n) {
+	var t = triple(n);
+	return double(t);
+}
+print(triple_then_double(2) == 12);
+
+// --- several sibling blocks inside one function, reusing slots, args untouched ---
+fn siblings_in_fn(a, b) {
+	{
+		var s = a + 1;
+		print(s == a + 1);
+	}
+	{
+		var s = b + 1;
+		print(s == b + 1);
+	}
+	return a + b;
+}
+print(siblings_in_fn(3, 4) == 7);
+
+// --- many arguments at once ---
+fn five_args(a, b, c, d, e) {
+	return a + b + c + d + e;
+}
+print(five_args(1, 2, 3, 4, 5) == 15);
+
+// --- global read from inside a function ---
+fn read_global() {
+	return g + 1;
+}
+print(read_global() == 11);
+
+// ============================================================
+// recursion (the original bug: a recursive call's argument was
+// always reading the outermost call's slot instead of its own)
+// ============================================================
+
+// --- exact repro from the original stack-overflow report ---
+fn fib_trace(n) {
+	if (n < 2) {
+		return n;
+	}
+	return fib_trace(n - 1) + fib_trace(n - 2);
+}
+print(fib_trace(3) == 2);
+
+// --- deeper recursion, checked against known values ---
+fn fib(n) {
+	if (n < 2) {
+		return n;
+	}
+	return fib(n - 1) + fib(n - 2);
+}
+print(fib(0) == 0);
+print(fib(1) == 1);
+print(fib(10) == 55);
+print(fib(20) == 6765);
+
+// --- recursion with a body-local var alongside the argument ---
+fn factorial(n) {
+	if (n <= 1) {
+		return 1;
+	}
+	var prev = factorial(n - 1);
+	return n * prev;
+}
+print(factorial(5) == 120);
+print(factorial(10) == 3628800);
+
+// --- two different top-level functions, each recursive, calling each other ---
+fn is_even(n) {
+	if (n == 0) {
+		return true;
+	}
+	return is_odd(n - 1);
+}
+fn is_odd(n) {
+	if (n == 0) {
+		return false;
+	}
+	return is_even(n - 1);
+}
+print(is_even(10) == true);
+print(is_odd(10) == false);
+print(is_even(7) == false);
+
+// --- recursive call nested inside ordinary blocks (the scenario that exposed
+//     the "ordinary blocks also need their own scope index" bug) ---
+{
+	{
+		print(fib(6) == 8);
+	}
+}

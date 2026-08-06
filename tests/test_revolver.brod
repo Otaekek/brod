@@ -1,0 +1,144 @@
+// Trying out the resolver draft (scope + functions). No while/class yet.
+// Convention: everything printed should evaluate to true.
+// This file is deliberately more aggressive than the resolver currently supports
+// -- it is a target to grow into, not a must-pass suite right now.
+
+// --- global scope: untouched by the resolver (scope 0) ---
+var g = 10;
+print(g == 10);
+
+// --- one block, a couple of simple locals ---
+{
+	var a = 1;
+	var b = 2;
+	print(a == 1);
+	print(b == 2);
+	print(a + b == 3);
+}
+
+// --- deep nesting, same name shadowed at every level (5 deep) ---
+{
+	var x = 1;
+	{
+		var x = 2;
+		{
+			var x = 3;
+			{
+				var x = 4;
+				{
+					var x = 5;
+					print(x == 5);
+				}
+				print(x == 4);
+			}
+			print(x == 3);
+		}
+		print(x == 2);
+	}
+	print(x == 1);
+}
+
+// --- different names declared at different depths, read back out of order ---
+{
+	var l1 = 1;
+	{
+		var l2 = 2;
+		{
+			var l3 = 3;
+			{
+				var l4 = 4;
+				print(l4 == 4);
+				print(l3 == 3);
+				print(l2 == 2);
+				print(l1 == 1);
+			}
+		}
+	}
+}
+
+// --- reading an enclosing block's variable from several levels down ---
+{
+	var outer = 42;
+	{
+		{
+			{
+				print(outer == 42);
+			}
+		}
+	}
+}
+
+// --- many sibling blocks in a row, each reusing slots, with survivors around them ---
+{
+	var before = 1;
+	{
+		var s = 10;
+		print(s == 10);
+	}
+	{
+		var s = 20;
+		print(s == 20);
+	}
+	{
+		var s = 30;
+		var t = 31;
+		print(s == 30);
+		print(t == 31);
+	}
+	{
+		var s = 40;
+		print(s == 40);
+	}
+	var after = 2;
+	print(before == 1);
+	print(after == 2);
+}
+
+// --- sibling blocks nested inside sibling blocks ---
+{
+	{
+		var p = 1;
+		{
+			var q = 2;
+			print(p == 1);
+			print(q == 2);
+		}
+		{
+			var q = 3;
+			print(p == 1);
+			print(q == 3);
+		}
+	}
+	{
+		var p = 4;
+		{
+			var q = 5;
+			print(p == 4);
+			print(q == 5);
+		}
+	}
+}
+
+// --- reassigning an already-declared local (not just redeclaring it) ---
+{
+	var z = 1;
+	z = 2;
+	print(z == 2);
+	{
+		var z = 100;
+		z = 200;
+		print(z == 200);
+	}
+	print(z == 2);
+}
+
+// --- reading a global from inside deeply nested blocks, then reading it again after ---
+{
+	{
+		{
+			var h = g + 1;
+			print(h == 11);
+		}
+	}
+}
+print(g == 10);

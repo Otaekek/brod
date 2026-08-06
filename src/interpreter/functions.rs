@@ -37,6 +37,7 @@ impl ForeignFunction {
 pub struct ResidentFunction {
     pub name: String,
     pub statement: StatementID,
+    pub arguments: Vec<String>,
 }
 
 impl ResidentFunction {
@@ -48,14 +49,14 @@ impl ResidentFunction {
         call_span: Span,
         self_id: Option<InstanceId>,
     ) -> Result<RTObject, InterpretorError> {
-        // if arguments.len() != self.arguments.len() {
-        //     return Err(InterpretorError::InvalidSignature {
-        //         name: self.name.clone(),
-        //         expected: self.arguments.len(),
-        //         actual: arguments.len(),
-        //         span: Some(call_span),
-        //     });
-        // }
+        if arguments.len() != self.arguments.len() {
+            return Err(InterpretorError::InvalidSignature {
+                name: self.name.clone(),
+                expected: self.arguments.len(),
+                actual: arguments.len(),
+                span: Some(call_span),
+            });
+        }
 
         interpreter.environment.push();
         if let Some(id) = self_id {
@@ -63,8 +64,15 @@ impl ResidentFunction {
                 .environment
                 .add("self".to_string(), RTObject::Class(id));
         }
+        for (name, value) in self.arguments.iter().zip(arguments.iter()) {
+            interpreter.environment.add(name.clone(), value.clone());
+        }
 
+        let saved_in_method = interpreter.in_method_or_constructor;
+        interpreter.in_method_or_constructor = self_id.is_some();
+        interpreter.entering_function_body = true;
         let ret = interpreter.eval_statement(ast, &ast.statement_arena[self.statement]);
+        interpreter.in_method_or_constructor = saved_in_method;
         interpreter.environment.pop();
         ret
     }
@@ -92,6 +100,7 @@ impl ConstructorFunction {
                 std::rc::Rc::new(Function::Resident(ResidentFunction {
                     name: f.name.clone(),
                     statement: f.statement,
+                    arguments: f.argument_names(),
                 })),
             );
         }
@@ -112,9 +121,23 @@ impl ConstructorFunction {
         interpreter
             .environment
             .add("self".to_string(), RTObject::Class(id));
+        for (name, value) in self
+            .class
+            .constructor
+            .argument_names()
+            .iter()
+            .zip(arguments.iter())
+        {
+            interpreter.environment.add(name.clone(), value.clone());
+        }
 
-        interpreter.eval_statement(ast, &ast.statement_arena[self.class.constructor.statement])?;
+        let saved_in_method = interpreter.in_method_or_constructor;
+        interpreter.in_method_or_constructor = true;
+        let ret =
+            interpreter.eval_statement(ast, &ast.statement_arena[self.class.constructor.statement]);
+        interpreter.in_method_or_constructor = saved_in_method;
         interpreter.environment.pop();
+        ret?;
         Ok(RTObject::Class(id))
     }
 }

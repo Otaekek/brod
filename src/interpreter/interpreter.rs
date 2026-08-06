@@ -114,10 +114,14 @@ pub struct Interpreter {
     pub environment: Environment,
     pub instance_arena: InstanceArena,
     pub stack: Vec<RTObject>,
-    pub calling_function: usize,
+    pub entering_function_body: bool,
+    pub in_method_or_constructor: bool,
+    depth: usize,
     scope_stack: Vec<usize>,
     head: usize,
 }
+
+const FUNCTION_SCOPE: usize = 0;
 
 #[derive(Debug, Clone)]
 pub enum InterpretorError {
@@ -225,6 +229,7 @@ impl Interpreter {
             Rc::new(Function::Resident(ResidentFunction {
                 name: definition.name.clone(),
                 statement: definition.statement,
+                arguments: definition.argument_names(),
             })),
         );
     }
@@ -248,20 +253,18 @@ impl Interpreter {
         ast: &AST,
         function_call: &FunctionCall,
     ) -> Result<LocatedRTObject, InterpretorError> {
-        self.calling_function += 1;
         let evaluated_args = function_call
             .arguments
             .iter()
             .map(|expr_id| self.eval(ast, *expr_id))
             .collect::<Result<Vec<_>, _>>()?;
-        let len = self.stack.len();
 
-        if self.scope_stack.is_empty() {
-            self.scope_stack.push(len);
-        } else {
-            self.scope_stack[0] = len;
+        while self.scope_stack.len() <= FUNCTION_SCOPE {
+            self.scope_stack.push(0);
         }
-        // self.scope_stack.push(self.stack.len());
+        let saved_scope_base = self.scope_stack[FUNCTION_SCOPE];
+        self.scope_stack[FUNCTION_SCOPE] = self.stack.len();
+
         let args_end = evaluated_args.iter().map(|v| v.span.end).max();
         let arguments: Vec<RTObject> = evaluated_args.into_iter().map(|v| v.inner).collect();
 
@@ -312,7 +315,7 @@ impl Interpreter {
         for _ in &arguments {
             self.stack.pop();
         }
-        self.scope_stack.pop();
+        self.scope_stack[FUNCTION_SCOPE] = saved_scope_base;
         ret
     }
     pub fn new() -> Self {
@@ -322,7 +325,9 @@ impl Interpreter {
             stack: Vec::with_capacity(4096),
             scope_stack: Vec::with_capacity(4096),
             head: 0,
-            calling_function: 0,
+            entering_function_body: false,
+            in_method_or_constructor: false,
+            depth: 0,
         };
         init_foreign_functions(&mut ret);
         ret
@@ -451,8 +456,9 @@ impl Interpreter {
             }
             Declaration::VarDecl(ident, expr_id) => {
                 let value = self.eval(ast, *expr_id)?;
-                // global scope: use hash map for repl convenience
-                if self.scope_stack.is_empty() {
+                // global scope, or inside a method/constructor (never resolved
+                // to a stack slot): use the name-keyed environment.
+                if self.depth == 0 || self.in_method_or_constructor {
                     self.environment.add(ident.clone(), value.inner.clone());
                 } else {
                     // inner scope: indexed lookup on the stack
@@ -495,13 +501,22 @@ impl Interpreter {
                 Ok(RTObject::Primary(Primary::Nil))
             }
             Statement::Block(block) => {
-                let calling_function_local = self.calling_function;
-                if self.calling_function != 0 {
-                    self.calling_function -= 1;
-                }
-                if calling_function_local == 0 {
-                    self.scope_stack.push(self.stack.len());
-                }
+                let is_function_body = self.entering_function_body;
+                self.entering_function_body = false;
+
+                let saved_scope_base = if is_function_body {
+                    None
+                } else {
+                    while self.scope_stack.len() <= block.scope {
+                        self.scope_stack.push(0);
+                    }
+                    let saved = self.scope_stack[block.scope];
+                    self.scope_stack[block.scope] = self.stack.len();
+                    Some(saved)
+                };
+
+                self.depth += 1;
+                let stack_len_before = self.stack.len();
                 let mut last = Primary::Nil.to_object();
                 self.environment.push();
                 for declaration_id in &block.declarations {
@@ -515,23 +530,21 @@ impl Interpreter {
                         Ok(r) => last = r,
                         Err(r) => {
                             self.environment.pop();
-                            for _ in 0..block.locals.len() {
-                                self.stack.pop();
+                            self.stack.truncate(stack_len_before);
+                            if let Some(saved) = saved_scope_base {
+                                self.scope_stack[block.scope] = saved;
                             }
-                            if calling_function_local == 0 {
-                                self.scope_stack.pop();
-                            }
+                            self.depth -= 1;
                             return Err(r);
                         }
                     }
                 }
                 self.environment.pop();
-                for _ in 0..block.locals.len() {
-                    self.stack.pop();
+                self.stack.truncate(stack_len_before);
+                if let Some(saved) = saved_scope_base {
+                    self.scope_stack[block.scope] = saved;
                 }
-                if calling_function_local == 0 {
-                    self.scope_stack.pop();
-                }
+                self.depth -= 1;
                 Ok(last)
             }
             Statement::IfStatement(ifelses, else_stmt) => {
@@ -612,13 +625,9 @@ impl Interpreter {
                     }
                 }
                 Primary::Local((index, scope)) => {
-                    // println!(
-                    //     "{} {}{ :#?} {:#?}",
-                    //     *index, scope, self.scope_stack, self.stack
-                    // );
                     return Ok(self.stack[*index + self.scope_stack[*scope]]
                         .clone()
-                        .located(Span::point(0)));
+                        .located(terminal.span));
                 }
                 _ => return Ok(terminal.clone().to_object()),
             },

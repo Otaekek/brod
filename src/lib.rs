@@ -29,11 +29,15 @@ fn run(source: &str, source_name: String, interpreter: &mut Interpreter, ast: &m
         }
         if res.1.is_empty() {
             let mut resolver = resolver::Resolver::init();
-            resolver.resolve(ast);
-            let result = interpreter::interpreter::eval(ast.clone(), interpreter);
-            match result {
-                Ok(v) => {
-                    println!("{}: {}", "Ok".green(), v)
+            match resolver.resolve(ast) {
+                Ok(()) => {
+                    let result = interpreter::interpreter::eval(ast.clone(), interpreter);
+                    match result {
+                        Ok(v) => {
+                            println!("{}: {}", "Ok".green(), v)
+                        }
+                        Err(err) => eprintln!("{}", render(&err, source, &source_name)),
+                    }
                 }
                 Err(err) => eprintln!("{}", render(&err, source, &source_name)),
             }

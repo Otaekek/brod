@@ -111,6 +111,18 @@ pub struct FunctionDefinition {
     pub statement: StatementID,
 }
 
+impl FunctionDefinition {
+    pub fn argument_names(&self) -> Vec<String> {
+        self.arguments
+            .iter()
+            .map(|arg| match arg {
+                Primary::String(s) => s.clone(),
+                _ => unreachable!("function arguments are always Primary::String"),
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ClassDefinition {
     pub name: String,
@@ -146,6 +158,7 @@ pub enum Declaration {
 pub struct Block {
     pub locals: Vec<Primary>,
     pub declarations: Vec<DeclarationID>,
+    pub scope: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -191,6 +204,8 @@ pub enum ASTError {
     ExpectedIdentifier(Token),
     BinaryNoLeft(Token),
     RValueAssignment(Option<Span>),
+    FunctionDeclarationInBlock(Token),
+    UndeclaredVariable(String, Span),
 }
 
 impl Diagnostic for ASTError {
@@ -202,9 +217,11 @@ impl Diagnostic for ASTError {
             ASTError::TokenError(located_token, _)
             | ASTError::ExpectedExpression(located_token)
             | ASTError::ExpectedIdentifier(located_token)
-            | ASTError::BinaryNoLeft(located_token) => Some(located_token.span),
+            | ASTError::BinaryNoLeft(located_token)
+            | ASTError::FunctionDeclarationInBlock(located_token) => Some(located_token.span),
             ASTError::Eof | ASTError::NoConstructor(_) | ASTError::TooManyArguments => None,
             ASTError::RValueAssignment(span) => *span,
+            ASTError::UndeclaredVariable(_, span) => Some(*span),
         }
     }
     fn message(&self) -> String {
@@ -235,6 +252,10 @@ impl Diagnostic for ASTError {
                 "Too many arguments for function call, maximum is 255".to_string()
             }
             ASTError::NoConstructor(name) => format!("Class {} has no constructor", name),
+            ASTError::FunctionDeclarationInBlock(_) => {
+                "Functions can only be declared at the top level, not inside a block".to_string()
+            }
+            ASTError::UndeclaredVariable(name, _) => format!("Undeclared variable: {}", name),
         }
     }
 }
@@ -386,7 +407,7 @@ impl<'a> ASTBuilder<'a> {
 
     fn function_def(&mut self) -> Result<Declaration, ASTError> {
         if self.scope_stack > 0 {
-            return Err(ASTError::Eof);
+            return Err(ASTError::FunctionDeclarationInBlock(self.current(0)));
         }
         self.consume(SimpleToken::KeyWord(KeyWordType::Fun))?;
         let name = self.get_identifier_string()?;
@@ -441,6 +462,7 @@ impl<'a> ASTBuilder<'a> {
                 return Ok(Statement::Block(Block {
                     locals,
                     declarations,
+                    scope: 0, // filled in by the resolver
                 }));
             }
             let declaration = self.declaration()?;
