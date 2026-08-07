@@ -57,4 +57,3 @@ print(p.describe());
 
 - **Arrays**: no list/array type.
 - **References**: no way to passe variables arround like with references or pointer, all value are copy only
-- **Variable resolver**: locals are still looked up by name in a `HashMap` per scope at runtime; a compile-time resolver pass (slot-indexed scopes) would remove that lookup cost.
