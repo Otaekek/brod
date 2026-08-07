@@ -1,4 +1,5 @@
 use crate::containers::arena::{Arena, Id};
+use crate::containers::tinyvec::TinyVec;
 use crate::diagnostic::{Diagnostic, Span, Stage};
 use crate::interpreter::environment::Environment;
 use crate::interpreter::functions::ConstructorFunction;
@@ -271,11 +272,16 @@ impl Interpreter {
         ast: &AST,
         function_call: &FunctionCall,
     ) -> Result<LocatedRTObject, InterpretorError> {
-        let evaluated_args = function_call
-            .arguments
-            .iter()
-            .map(|expr_id| self.eval(ast, *expr_id))
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut arguments: TinyVec<RTObject, 8> = TinyVec::new();
+        let mut args_end: Option<usize> = None;
+        for expr_id in &function_call.arguments {
+            let evaluated = self.eval(ast, *expr_id)?;
+            args_end = Some(match args_end {
+                Some(end) => end.max(evaluated.span.end),
+                None => evaluated.span.end,
+            });
+            arguments.push(evaluated.inner);
+        }
 
         while self.scope_stack.len() <= FUNCTION_SCOPE {
             self.scope_stack.push(0);
@@ -283,10 +289,7 @@ impl Interpreter {
         let saved_scope_base = self.scope_stack[FUNCTION_SCOPE];
         self.scope_stack[FUNCTION_SCOPE] = self.stack.len();
 
-        let args_end = evaluated_args.iter().map(|v| v.span.end).max();
-        let arguments: Vec<RTObject> = evaluated_args.into_iter().map(|v| v.inner).collect();
-
-        for arg in &arguments {
+        for arg in arguments.as_slice() {
             self.stack.push(arg.clone());
         }
 
@@ -302,7 +305,8 @@ impl Interpreter {
                 };
                 let call_span = located_primary.span.extended_to(args_end);
                 let func = self.functions[*callee].clone();
-                func.unwrap().call(ast, self, &arguments, call_span, None)
+                func.unwrap()
+                    .call(ast, self, arguments.as_slice(), call_span, None)
             }
             crate::parser::parser::Expr::Get(expr_id, name) => {
                 let expr = self.eval(ast, *expr_id)?;
@@ -310,9 +314,13 @@ impl Interpreter {
                     RTObject::Class(id) => {
                         let call_span = expr.span.extended_to(args_end);
                         match self.instance_arena[id].env.functions.get(name).cloned() {
-                            Some(function) => {
-                                function.call(ast, self, &arguments, call_span, Some(id))
-                            }
+                            Some(function) => function.call(
+                                ast,
+                                self,
+                                arguments.as_slice(),
+                                call_span,
+                                Some(id),
+                            ),
                             None => Err(InterpretorError::UnknownFunction(name.clone(), None)),
                         }
                     }
@@ -325,7 +333,7 @@ impl Interpreter {
             }
         };
 
-        for _ in &arguments {
+        for _ in 0..arguments.len() {
             self.stack.pop();
         }
         self.scope_stack[FUNCTION_SCOPE] = saved_scope_base;

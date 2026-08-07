@@ -245,7 +245,7 @@ impl Diagnostic for ASTError {
                 "Unexpected token, assignment should have a lvalue".to_string()
             }
             ASTError::TooManyArguments => {
-                "Too many arguments for function call, maximum is 255".to_string()
+                "Too many arguments for function call, maximum is 8".to_string()
             }
             ASTError::NoConstructor(name) => format!("Class {} has no constructor", name),
             ASTError::FunctionDeclarationInBlock(_) => {
@@ -775,7 +775,6 @@ impl<'a> ASTBuilder<'a> {
 
         while let Some(last) = self.my_match(&[SimpleToken::LeftParen, SimpleToken::Dot]) {
             let mut arguments = vec![];
-            let mut arguments_count = 0;
             loop {
                 if last == SimpleToken::LeftParen {
                     if self.my_match(&[SimpleToken::RightParen]).is_some() {
@@ -783,24 +782,17 @@ impl<'a> ASTBuilder<'a> {
                             func: left,
                             arguments: vec![],
                         }));
-                        arguments.clear();
-                        arguments_count += 1;
-                        if arguments_count > 255 {
-                            return Err(ASTError::TooManyArguments);
-                        }
                         break;
                     }
                     arguments.push(self.expression()?);
+                    if arguments.len() > 8 {
+                        return Err(ASTError::TooManyArguments);
+                    }
                     if self.my_match(&[SimpleToken::RightParen]).is_some() {
                         left = self.emit(Expr::FunctionCall(FunctionCall {
                             func: left,
                             arguments: arguments.clone(),
                         }));
-                        arguments_count += 1;
-                        if arguments_count > 255 {
-                            return Err(ASTError::TooManyArguments);
-                        }
-                        arguments.clear();
                         break;
                     }
                     self.consume(SimpleToken::Comma)?;

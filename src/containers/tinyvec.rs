@@ -38,6 +38,9 @@ impl<T: Clone, const N: usize> TinyVec<T, N> {
     pub fn len(&self) -> usize {
         self.len as usize
     }
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { std::slice::from_raw_parts(self.array.as_ptr() as *const T, self.len()) }
+    }
 }
 
 impl<T: Clone, const N: usize> Drop for TinyVec<T, N> {
@@ -201,6 +204,39 @@ fn test_drop_type_refill() {
     assert_eq!(t.pop(), Some("hello".to_string()));
     t.push("again".to_string());
     assert_eq!(t.pop(), Some("again".to_string()));
+}
+
+#[test]
+fn test_as_slice_empty() {
+    let t = TinyVec::<i32, 8>::new();
+    assert_eq!(t.as_slice(), &[] as &[i32]);
+}
+
+#[test]
+fn test_as_slice_matches_pushed_order() {
+    let mut t = TinyVec::<i32, 8>::new();
+    t.push(1);
+    t.push(2);
+    t.push(3);
+    assert_eq!(t.as_slice(), &[1, 2, 3]);
+}
+
+#[test]
+fn test_as_slice_reflects_pop() {
+    let mut t = TinyVec::<i32, 8>::new();
+    t.push(1);
+    t.push(2);
+    t.push(3);
+    t.pop();
+    assert_eq!(t.as_slice(), &[1, 2]);
+}
+
+#[test]
+fn test_as_slice_drop_type() {
+    let mut t = TinyVec::<String, 4>::new();
+    t.push("a".to_string());
+    t.push("b".to_string());
+    assert_eq!(t.as_slice(), &["a".to_string(), "b".to_string()]);
 }
 
 #[test]
