@@ -541,7 +541,10 @@ impl Interpreter {
                 self.depth += 1;
                 let stack_len_before = self.stack.len();
                 let mut last = Primary::Nil.to_object();
-                self.environment.push();
+                let needs_environment_scope = self.in_method_or_constructor;
+                if needs_environment_scope {
+                    self.environment.push();
+                }
                 for declaration_id in &block.declarations {
                     let declaration = &ast.declaration_arena[*declaration_id];
                     match declaration {
@@ -552,7 +555,9 @@ impl Interpreter {
                     match e_last {
                         Ok(r) => last = r,
                         Err(r) => {
-                            self.environment.pop();
+                            if needs_environment_scope {
+                                self.environment.pop();
+                            }
                             self.stack.truncate(stack_len_before);
                             if let Some(saved) = saved_scope_base {
                                 self.scope_stack[block.scope] = saved;
@@ -562,7 +567,9 @@ impl Interpreter {
                         }
                     }
                 }
-                self.environment.pop();
+                if needs_environment_scope {
+                    self.environment.pop();
+                }
                 self.stack.truncate(stack_len_before);
                 if let Some(saved) = saved_scope_base {
                     self.scope_stack[block.scope] = saved;
